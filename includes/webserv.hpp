@@ -45,7 +45,13 @@ class WebServ {
     // WebServ &operator=(const WebServ &other);
     ~WebServ();
 
-    bool start();
+    bool setup_server();
+    bool setup_socket();
+    bool setup_bind();
+    bool setup_listen();
+    bool run();
+    //TODO: funcao de clean e close fd quando algum erro acontecer 
+    //na hora do setup
 
 
 };
