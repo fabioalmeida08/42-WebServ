@@ -7,8 +7,8 @@
 // config
 
 WebServ::WebServ()
-    : _port("8080"), _local_host(""), _server_fd(-1), _opt(1), _backlog(3),
-      _hints(), _server_info(NULL), _getai_status(-1), _client_addr() {
+    : _port("8080"), _local_host("0.0.0.0"), _server_fd(-1), _opt(1),
+      _backlog(128), _server_info(NULL), _getai_status(-1) {
   // TODO:
   // chamar a funcão do parser para preencher as portas aqui
   // a classe parser teria que ter uma funcao que preenche
@@ -16,8 +16,7 @@ WebServ::WebServ()
 }
 // WebServ WebServ(const WebServ &other);
 
-
-//NOTE: metodos privados de inicializacao do server;
+// NOTE: metodos privados de inicializacao do server;
 bool WebServ::setup_socket() {
   std::memset(&_hints, 0, sizeof(_hints));
   _hints.ai_family = AF_INET;
@@ -90,8 +89,8 @@ bool WebServ::run() {
   while (1) {
     socklen_t _client_addr_size = sizeof(_client_addr);
 
-    //NOTE: primeiro sleep ocorre aqui, após isso o kernel bota o 
-    //processo em sleep até receber uma conexao;
+    // NOTE: primeiro sleep ocorre aqui, após isso o kernel bota o
+    // processo em sleep até receber uma conexao;
     int client_fd = accept(_server_fd, (struct sockaddr *)&_client_addr,
                            &_client_addr_size);
 
@@ -114,7 +113,7 @@ bool WebServ::run() {
 
     buffer[bytes_rcv] = '\0';
 
-    std::cout << "Requisição recebida:\n%" <<  buffer << std::endl;
+    std::cout << "Requisição recebida:\n%" << buffer << std::endl;
 
     const char *body = "Ui DIDI HIHIHIH";
 
