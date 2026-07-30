@@ -51,6 +51,9 @@ class WebServ {
     bool setup_listen();
     bool run();
     //TODO: funcao de clean e close fd quando algum erro acontecer 
+    void cleanup_addrinfo();
+    void cleanup_socket();
+    void cleanup_server();
     //na hora do setup
 
 

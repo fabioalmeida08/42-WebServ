@@ -6,7 +6,6 @@ int main (int argc, char *argv[]) {
 
   WebServ server;
 
-  server.start();
-  
+  server.run();
   return 0;
 }
