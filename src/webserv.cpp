@@ -1,14 +1,16 @@
-#include "../includes/webserv.hpp"
 #include <cstdio>
 #include <iostream>
 #include <netdb.h>
+#include "../includes/webserv.hpp"
 #include <sys/socket.h>
 
 WebServ::WebServ()
     : _port("8080"), _local_host("0.0.0.0"), _server_fd(-1), _opt(1),
       _backlog(128), _server_info(NULL), _getai_status(-1) {
 }
-// WebServ WebServ(const WebServ &other);
+// WebServ WebServ(const WebServ &other): _port(other._port) {
+//
+// }
 
 // NOTE: metodos privados de inicializacao do server;
 bool WebServ::setup_socket() {
@@ -103,7 +105,15 @@ bool WebServ::run() {
       continue;
     }
 
-    std::cout << "Cliente conectado" << std::endl;
+   
+    char host[NI_MAXHOST];
+    char service[NI_MAXSERV];
+
+    if (getnameinfo((struct sockaddr *)&_client_addr, _client_addr_size,host, sizeof(host), service, sizeof(service), NI_NUMERICHOST | NI_NUMERICSERV) == 0) {
+      std::cout << host << ":" << service << " conectou" << std::endl;
+    }
+
+    // std::cout << "Cliente conectado" << std::endl;
 
     char buffer[4096];
 
