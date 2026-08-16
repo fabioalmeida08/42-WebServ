@@ -89,14 +89,8 @@ bool WebServ::run() {
   if (!set_non_blocking(_server_fd))
     return false;
 
-  //NOTE: criacao da struc do server_pollfd. (não entendi o porque dessa parte, e ela poderia ser feita no metodo de inicializacao
-  //da classe? ao em vez do run? )
-  struct pollfd server_pollfd;
-  server_pollfd.fd = _server_fd;
-  server_pollfd.events = POLLIN;
-  server_pollfd.revents = 0;
-  _poll_fds.push_back(server_pollfd);
 
+  add_poll_fd(_server_fd, POLLIN);
   //NOTE: loop principal do programa por enquanto atende a um cliente por vez;
   while (1) {
     int ready = poll(_poll_fds.data(), _poll_fds.size(), -1);
@@ -144,13 +138,7 @@ void WebServ::handle_new_connection() {
     return;
   }
 
-  //REFACTOR: estou usando a mesma struct aqui que usei na hora de setar o server
-  //posso criar um metodo auxiliar para realizar essa rotina?
-  struct pollfd client_pollfd;
-  client_pollfd.fd = client_fd;
-  client_pollfd.events = POLLIN;
-  client_pollfd.revents = 0;
-  _poll_fds.push_back(client_pollfd);
+  add_poll_fd(client_fd, POLLIN);
 
   std::cout << "Cliente conectado, fd " << client_fd << std::endl;
 }
@@ -207,6 +195,14 @@ bool WebServ::set_non_blocking(int fd) {
     return false;
   }
   return true;
+}
+
+void WebServ::add_poll_fd(int fd, short events) {
+  struct pollfd pollfd;
+  pollfd.fd = fd;
+  pollfd.events = events;
+  pollfd.revents = 0;
+  _poll_fds.push_back(pollfd);
 }
 
 WebServ::~WebServ() { cleanup_server(); }

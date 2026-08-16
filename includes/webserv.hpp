@@ -45,6 +45,7 @@ class WebServ {
     void handle_new_connection();
     void handle_client_read(int client_fd, int index);
     bool set_non_blocking(int fd);
+    void add_poll_fd(int fd, short events);
 
     //NOTE: declarado aqui mas não implementado porque não queremos uma
     //cópia do webserv, deve existir somente um
