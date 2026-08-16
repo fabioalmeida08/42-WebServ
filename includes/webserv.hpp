@@ -18,10 +18,13 @@
 #include <netdb.h>
 #include <string>
 #include <cstring>
+#include <sys/poll.h>
 #include <sys/socket.h>
 #include <unistd.h>
 #include <cstdlib>
-
+#include <poll.h>
+#include <fcntl.h>
+#include <vector>
 
 class WebServ {
   private:
@@ -34,15 +37,25 @@ class WebServ {
     struct addrinfo *_server_info;
     int _getai_status;
     struct sockaddr_storage _client_addr;
+
+
+
+    //NOTE: metodos privados que seram usados em conjunto com o poll
+    std::vector<struct pollfd> _poll_fds;
+    void handle_new_connection();
+    void handle_client_read(int client_fd, int index);
+    bool set_non_blocking(int fd);
+
+    //NOTE: declarado aqui mas não implementado porque não queremos uma
+    //cópia do webserv, deve existir somente um
+    WebServ(const WebServ &other);
+    WebServ &operator=(const WebServ &other);
   public:
-    //TODO: aqui ele vai inciar com a config default do arquivo padrao
     WebServ();
     //TODO: caso receba um arquivo de configuracao, 
     //dentro desse método  tera a classe parser que ira validar e configurar o arquivo
     //de config
     // WebServ(std::string &config_file);
-    // WebServ(const WebServ &other);
-    // WebServ &operator=(const WebServ &other);
     ~WebServ();
 
     bool setup_server();
@@ -50,11 +63,9 @@ class WebServ {
     bool setup_bind();
     bool setup_listen();
     bool run();
-    //TODO: funcao de clean e close fd quando algum erro acontecer 
     void cleanup_addrinfo();
     void cleanup_socket();
     void cleanup_server();
-    //na hora do setup
 
 
 };

@@ -2,15 +2,13 @@
 #include <iostream>
 #include <netdb.h>
 #include "../includes/webserv.hpp"
+#include <sys/poll.h>
 #include <sys/socket.h>
 
 WebServ::WebServ()
     : _port("8080"), _local_host("0.0.0.0"), _server_fd(-1), _opt(1),
       _backlog(128), _server_info(NULL), _getai_status(-1) {
 }
-// WebServ WebServ(const WebServ &other): _port(other._port) {
-//
-// }
 
 // NOTE: metodos privados de inicializacao do server;
 bool WebServ::setup_socket() {
@@ -85,72 +83,103 @@ bool WebServ::setup_server() {
 }
 
 bool WebServ::run() {
-
   if (!setup_server())
     return false;
 
+  if (!set_non_blocking(_server_fd))
+    return false;
+
+  //NOTE: criacao da struc do server_pollfd. (não entendi o porque dessa parte, e ela poderia ser feita no metodo de inicializacao
+  //da classe? ao em vez do run? )
+  struct pollfd server_pollfd;
+  server_pollfd.fd = _server_fd;
+  server_pollfd.events = POLLIN;
+  server_pollfd.revents = 0;
+  _poll_fds.push_back(server_pollfd);
+
   //NOTE: loop principal do programa por enquanto atende a um cliente por vez;
-  //REFACTOR: usar o epoll depois para poder servir 
-  //mais de um cliente ao mesmo tempo
   while (1) {
-    socklen_t _client_addr_size = sizeof(_client_addr);
+    int ready = poll(_poll_fds.data(), _poll_fds.size(), -1);
 
-    // NOTE: primeiro sleep ocorre aqui, após isso o kernel bota o
-    // processo em sleep até receber uma conexao;
-    int client_fd = accept(_server_fd, (struct sockaddr *)&_client_addr,
-                           &_client_addr_size);
-
-    if (client_fd < 0) {
-      perror("accept");
-      continue;
+    if (ready < 0)
+    {
+      perror("poll");
+      break;
     }
 
-   
-    char host[NI_MAXHOST];
-    char service[NI_MAXSERV];
+    for (int i = static_cast<int>(_poll_fds.size()) -1; i >= 0; i--)
+    {
+      struct pollfd &pfd = _poll_fds[i];
 
-    if (getnameinfo((struct sockaddr *)&_client_addr, _client_addr_size,host, sizeof(host), service, sizeof(service), NI_NUMERICHOST | NI_NUMERICSERV) == 0) {
-      std::cout << host << ":" << service << " conectou" << std::endl;
+      if (pfd.revents == 0)
+        continue;
+      if (pfd.fd == _server_fd)
+      {
+        handle_new_connection();
+      } else if (pfd.revents & (POLLHUP | POLLERR))
+      {
+        close(pfd.fd);
+        _poll_fds.erase(_poll_fds.begin() + i);
+      } else if (pfd.revents & POLLIN)
+      {
+        handle_client_read(pfd.fd, i);
+      }
     }
-
-    // std::cout << "Cliente conectado" << std::endl;
-
-    char buffer[4096];
-
-    //NOTE: recv é bloqueante tbm, o kernel irá botar o processo em sleep
-    //até receber dados
-    ssize_t bytes_rcv = recv(client_fd, buffer, sizeof(buffer) - 1, 0);
-
-    if (bytes_rcv < 0) {
-      perror("recv");
-      close(client_fd);
-      continue;
-    }
-
-    buffer[bytes_rcv] = '\0';
-
-    std::cout << "Requisição recebida:\n%" << buffer << std::endl;
-
-    const char *body = "Ui DIDI HIHIHIH";
-
-    char response[1024];
-
-    snprintf(response, sizeof(response),
-             "HTTP/1.1 200 OK\r\n"
-             "Content-Type: text/plain\r\n"
-             "Content-Length: %zu\r\n"
-             "\r\n"
-             "%s",
-             strlen(body), body);
-
-    //NOTE:Envia a resposta HTTP ao cliente.
-    send(client_fd, response, strlen(response), 0);
-
-    close(client_fd);
-
-    std::cout << "Cliente desconectado" << std::endl;
   }
   return true;
+}
+
+void WebServ::handle_new_connection() {
+  struct sockaddr_storage client_addr;
+  socklen_t client_addr_size = sizeof(client_addr);
+
+  int client_fd = accept(_server_fd, (struct sockaddr *)&client_addr, &client_addr_size);
+  if (client_fd < 0) {
+    perror("accept");
+    return; // não é fatal, só não aceitou essa conexão específica
+  }
+
+  if (!set_non_blocking(client_fd)) {
+    close(client_fd);
+    return;
+  }
+
+  //REFACTOR: estou usando a mesma struct aqui que usei na hora de setar o server
+  //posso criar um metodo auxiliar para realizar essa rotina?
+  struct pollfd client_pollfd;
+  client_pollfd.fd = client_fd;
+  client_pollfd.events = POLLIN;
+  client_pollfd.revents = 0;
+  _poll_fds.push_back(client_pollfd);
+
+  std::cout << "Cliente conectado, fd " << client_fd << std::endl;
+}
+
+void WebServ::handle_client_read(int client_fd, int index) {
+  char buffer[4096];
+  ssize_t bytes_rcv = recv(client_fd, buffer, sizeof(buffer) - 1, 0);
+
+  if (bytes_rcv <= 0) {
+    // 0 = cliente fechou a conexão; -1 = erro — tratamos os dois igual,
+    // sem checar errno, como o subject exige
+    close(client_fd);
+    _poll_fds.erase(_poll_fds.begin() + index);
+    return;
+  }
+
+  buffer[bytes_rcv] = '\0';
+  std::cout << "Requisição recebida:\n" << buffer << std::endl;
+
+  const char *body = "Ui DIDI HIHIHIH";
+  char response[1024];
+  snprintf(response, sizeof(response),
+           "HTTP/1.1 200 OK\r\nContent-Type: text/plain\r\nContent-Length: %zu\r\n\r\n%s",
+           strlen(body), body);
+
+  send(client_fd, response, strlen(response), 0);
+
+  close(client_fd);
+  _poll_fds.erase(_poll_fds.begin() + index);
 }
 
 void WebServ::cleanup_addrinfo() {
@@ -171,9 +200,13 @@ void WebServ::cleanup_socket() {
     _server_fd = -1;
   }
 }
-// TODO: forma canonica
-//  WebServ::WebServ(std::string &config_file) {}
-//  WebServ::WebServ(const WebServ &other) {}
-//  // WebServ &WebServ::operator=(const WebServ &other) {}
-//
+
+bool WebServ::set_non_blocking(int fd) {
+  if (fcntl(fd, F_SETFL, O_NONBLOCK) < 0) {
+    perror("fcntl");
+    return false;
+  }
+  return true;
+}
+
 WebServ::~WebServ() { cleanup_server(); }
