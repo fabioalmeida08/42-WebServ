@@ -34,6 +34,7 @@ class WebServ {
     struct addrinfo *_server_info;
     int _getai_status;
     struct sockaddr_storage _client_addr;
+    std::string  load_index();
   public:
     //TODO: aqui ele vai inciar com a config default do arquivo padrao
     WebServ();

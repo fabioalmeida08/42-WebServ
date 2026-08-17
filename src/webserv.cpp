@@ -3,6 +3,8 @@
 #include <netdb.h>
 #include "../includes/webserv.hpp"
 #include <sys/socket.h>
+#include <fstream>
+#include <bits/stdc++.h>
 
 WebServ::WebServ()
     : _port("8080"), _local_host("0.0.0.0"), _server_fd(-1), _opt(1),
@@ -84,6 +86,23 @@ bool WebServ::setup_server() {
   return true;
 }
 
+std::string  WebServ::load_index()
+{
+    // Vou preencher o body com o index.html que ta na pasta www
+    // TODO: testar com imagens, icones (.ico) e se possível vídeos
+    std::ifstream index("./www/index.html");
+    if (!index.is_open())
+    {
+          std::cerr << "Error opening index.html" << std::endl;
+          return ("");
+    }
+    std::string body((std::istreambuf_iterator<char>(index)),
+                      std::istreambuf_iterator<char>());
+
+    index.close();
+    return (body);
+}
+
 bool WebServ::run() {
 
   if (!setup_server())
@@ -131,17 +150,20 @@ bool WebServ::run() {
 
     std::cout << "Requisição recebida:\n%" << buffer << std::endl;
 
-    const char *body = "Ui DIDI HIHIHIH";
+    std::string body = load_index();
+    if (body == "")
+      return (false);
+    // const char *body = "Ui DIDI HIHIHIH";
 
     char response[1024];
 
     snprintf(response, sizeof(response),
              "HTTP/1.1 200 OK\r\n"
-             "Content-Type: text/plain\r\n"
+             "Content-Type: text/html\r\n"
              "Content-Length: %zu\r\n"
              "\r\n"
              "%s",
-             strlen(body), body);
+             body.size(), body.c_str());
 
     //NOTE:Envia a resposta HTTP ao cliente.
     send(client_fd, response, strlen(response), 0);
