@@ -2,12 +2,22 @@
 #include <cstdio>
 #include <iostream>
 #include <netdb.h>
+#include <sstream>
 #include <sys/poll.h>
 #include <sys/socket.h>
 
 WebServ::WebServ()
     : _port("8080"), _server_fd(-1), _reuse_addr(1),
       _backlog(128), _addr(NULL), _gai_ret(-1) {}
+
+void WebServ::loadConfig(const std::vector<Server> &servers) {
+  _servers = servers;
+  if (!_servers.empty()) {
+    std::ostringstream oss;
+    oss << _servers[0].get_port();
+    _port = oss.str();
+  }
+}
 
 bool WebServ::setup_socket_bind() {
   std::memset(&_hints, 0, sizeof(_hints));

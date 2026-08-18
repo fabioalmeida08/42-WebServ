@@ -26,8 +26,11 @@
 #include <fcntl.h>
 #include <vector>
 
+#include "../includes/server.hpp"
+
 class WebServ {
   private:
+    std::vector<Server> _servers;
     std::string _port;
 
     int _server_fd;
@@ -62,6 +65,7 @@ class WebServ {
     bool setup_socket_bind();
     bool setup_listen();
     bool run();
+    void loadConfig(const std::vector<Server> &servers);
     void cleanup_addrinfo();
     void cleanup_socket();
     void cleanup_server();
