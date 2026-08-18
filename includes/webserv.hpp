@@ -29,14 +29,13 @@
 class WebServ {
   private:
     std::string _port;
-    std::string _local_host;
+
     int _server_fd;
-    int _opt;
+    int _reuse_addr;
     int _backlog;
     struct addrinfo _hints;
-    struct addrinfo *_server_info;
-    int _getai_status;
-    struct sockaddr_storage _client_addr;
+    struct addrinfo *_addr;
+    int _gai_ret;
 
 
 
@@ -60,8 +59,7 @@ class WebServ {
     ~WebServ();
 
     bool setup_server();
-    bool setup_socket();
-    bool setup_bind();
+    bool setup_socket_bind();
     bool setup_listen();
     bool run();
     void cleanup_addrinfo();
