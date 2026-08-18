@@ -1,18 +1,23 @@
+#include <iostream>
+#include <stdexcept>
+
+#include "../includes/parser.hpp"
 #include "../includes/webserv.hpp"
 
-int main (int argc, char *argv[]) {
-  (void)argv;
-  (void)argc;
-  //TODO: ter o metodo do parse que preenche a classe
-  //com as config de um arquivo default, ou do arquivo 
-  //do argv[1];
-  //    if (argc == 2)
-  //     server.loadConfig(argv[1]);
-  // else
-  //     server.loadDefaultConfig();
+int main(int argc, char *argv[]) {
+  try {
+    std::vector<Server> servers;
+    if (argc == 2)
+      servers = Parser(argv[1]).get_servers();
+    else
+      servers = Parser("default.conf").get_servers();
 
-  WebServ server;
-
-  server.run();
+    WebServ server;
+    server.loadConfig(servers);
+    server.run();
+  } catch (const std::exception &e) {
+    std::cerr << e.what() << std::endl;
+    return 1;
+  }
   return 0;
 }
