@@ -1,3 +1,4 @@
+#include <arpa/inet.h>
 #include <cctype>
 #include <cstdlib>
 #include <fstream>
@@ -242,6 +243,13 @@ void Parser::parse_server_directive(Server &server, const std::string &name,
     if (code < 100 || code > 599)
       error("codigo de erro invalido: '" + values[0] + "'", line);
     server.set_error_page(code, values[1]);
+  } else if (name == "host") {
+    if (values.size() != 1)
+      error("diretiva 'host' espera 1 valor", line);
+    struct in_addr addr;
+    if (inet_pton(AF_INET, values[0].c_str(), &addr) != 1)
+      error("host invalido: '" + values[0] + "' (esperado IPv4)", line);
+    server.set_host(values[0]);
   } else if (name == "client_max_body_size") {
     if (values.size() != 1)
       error("diretiva 'client_max_body_size' espera 1 valor", line);

@@ -15,6 +15,7 @@
 
 // #define OPT 1
 
+#include <map>
 #include <netdb.h>
 #include <string>
 #include <cstring>
@@ -30,22 +31,26 @@
 
 class WebServ {
   private:
-    std::vector<Server> _servers;
-    std::string _port;
+    struct ListenSocket {
+      int fd;
+      int port;
+      std::vector<int> server_indexes;
+    };
 
-    int _server_fd;
+    std::vector<Server> _servers;
+    std::vector<ListenSocket> _listen_sockets;
+    std::map<int, int> _client_listen;
+
     int _reuse_addr;
     int _backlog;
-    struct addrinfo _hints;
-    struct addrinfo *_addr;
-    int _gai_ret;
 
 
 
     //NOTE: metodos privados que seram usados em conjunto com o poll
     std::vector<struct pollfd> _poll_fds;
-    void handle_new_connection();
+    void handle_new_connection(int listen_index);
     void handle_client_read(int client_fd, int index);
+    int find_listen_index(int fd) const;
     bool set_non_blocking(int fd);
     void add_poll_fd(int fd, short events);
 
@@ -62,11 +67,10 @@ class WebServ {
     ~WebServ();
 
     bool setup_server();
-    bool setup_socket_bind();
+    bool setup_listen_sockets();
     bool setup_listen();
     bool run();
     void loadConfig(const std::vector<Server> &servers);
-    void cleanup_addrinfo();
     void cleanup_socket();
     void cleanup_server();
 
