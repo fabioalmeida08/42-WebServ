@@ -7,6 +7,7 @@
 #include <sys/socket.h>
 #include <fstream>
 #include <bits/stdc++.h>
+#include "../includes/request_test.hpp"
 
 WebServ::WebServ() : _reuse_addr(1), _backlog(128) {}
 
@@ -218,18 +219,29 @@ void WebServ::handle_client_read(int client_fd, int index) {
   }
 
   buffer[bytes_rcv] = '\0';
-  std::cout << "Requisição recebida:\n" << buffer << std::endl;
+
+  Request test;
+
+  test.set_buffer(buffer);
+  std::cout << "Requisição recebida:\n" << test.get_buffer() << std::endl;
+
+  Response  response;
 
   std::string body = load_index();
   if (body == "")
     return;
-  char response[1024];
-  snprintf(response, sizeof(response),
-           "HTTP/1.1 200 OK\r\nContent-Type: text/html\r\nContent-Length: "
-           "%zu\r\n\r\n%s",
-           body.size(), body.c_str());
+  response.set_status(200);
+  response.set_header("Content-Type", "text/html");
+  response.set_body(body);
+  // char response[1024];
+  std::string final_response = response.build();
 
-  send(client_fd, response, strlen(response), 0);
+  // snprintf(response, sizeof(response),
+  //          "HTTP/1.1 200 OK\r\nContent-Type: text/html\r\nContent-Length: "
+  //          "%zu\r\n\r\n%s",
+  //          body.size(), body.c_str());
+
+  send(client_fd, final_response.data(), final_response.size(), 0);
 
   _client_listen.erase(client_fd);
   close(client_fd);

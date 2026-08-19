@@ -6,7 +6,7 @@
 /*   By: ranhaia- <ranhaia-@student.42.fr>          +#+  +:+       +#+        */
 /*                                                +#+#+#+#+#+   +#+           */
 /*   Created: 2026/07/27 12:03:51 by fabio             #+#    #+#             */
-/*   Updated: 2026/08/19 16:03:40 by ranhaia-         ###   ########.fr       */
+/*   Updated: 2026/08/19 18:56:40 by ranhaia-         ###   ########.fr       */
 /*                                                                            */
 /* ************************************************************************** */
 
@@ -28,6 +28,8 @@
 #include <vector>
 
 #include "../includes/server.hpp"
+#include "../includes/request_test.hpp"
+#include "../includes/response.hpp"
 
 class WebServ {
   private:
