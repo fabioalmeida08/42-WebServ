@@ -3,10 +3,10 @@
 /*                                                        :::      ::::::::   */
 /*   webserv.hpp                                        :+:      :+:    :+:   */
 /*                                                    +:+ +:+         +:+     */
-/*   By: fabio </var/spool/mail/fabio>              +#+  +:+       +#+        */
+/*   By: ranhaia- <ranhaia-@student.42.fr>          +#+  +:+       +#+        */
 /*                                                +#+#+#+#+#+   +#+           */
 /*   Created: 2026/07/27 12:03:51 by fabio             #+#    #+#             */
-/*   Updated: 2026/07/27 12:14:21 by fabio            ###   ########.fr       */
+/*   Updated: 2026/08/19 16:03:40 by ranhaia-         ###   ########.fr       */
 /*                                                                            */
 /* ************************************************************************** */
 
@@ -53,6 +53,7 @@ class WebServ {
     int find_listen_index(int fd) const;
     bool set_non_blocking(int fd);
     void add_poll_fd(int fd, short events);
+    std::string  load_index();
 
     //NOTE: declarado aqui mas não implementado porque não queremos uma
     //cópia do webserv, deve existir somente um

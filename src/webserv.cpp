@@ -5,6 +5,8 @@
 #include <sstream>
 #include <sys/poll.h>
 #include <sys/socket.h>
+#include <fstream>
+#include <bits/stdc++.h>
 
 WebServ::WebServ() : _reuse_addr(1), _backlog(128) {}
 
@@ -123,6 +125,23 @@ int WebServ::find_listen_index(int fd) const {
   return -1;
 }
 
+std::string  WebServ::load_index()
+{
+    // Vou preencher o body com o index.html que ta na pasta www
+    // TODO: testar com imagens, icones (.ico) e se possível vídeos
+    std::ifstream index("./www/index.html");
+    if (!index.is_open())
+    {
+          std::cerr << "Error opening index.html" << std::endl;
+          return ("");
+    }
+    std::string body((std::istreambuf_iterator<char>(index)),
+                      std::istreambuf_iterator<char>());
+
+    index.close();
+    return (body);
+}
+
 bool WebServ::run() {
   if (!setup_server())
     return false;
@@ -201,12 +220,14 @@ void WebServ::handle_client_read(int client_fd, int index) {
   buffer[bytes_rcv] = '\0';
   std::cout << "Requisição recebida:\n" << buffer << std::endl;
 
-  const char *body = "Ui DIDI HIHIHIH";
+  std::string body = load_index();
+  if (body == "")
+    return;
   char response[1024];
   snprintf(response, sizeof(response),
-           "HTTP/1.1 200 OK\r\nContent-Type: text/plain\r\nContent-Length: "
+           "HTTP/1.1 200 OK\r\nContent-Type: text/html\r\nContent-Length: "
            "%zu\r\n\r\n%s",
-           strlen(body), body);
+           body.size(), body.c_str());
 
   send(client_fd, response, strlen(response), 0);
 
