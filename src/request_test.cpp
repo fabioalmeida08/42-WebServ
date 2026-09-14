@@ -6,7 +6,7 @@
 /*   By: ranhaia- <ranhaia-@student.42.fr>          +#+  +:+       +#+        */
 /*                                                +#+#+#+#+#+   +#+           */
 /*   Created: 2026/08/19 18:24:01 by ranhaia-          #+#    #+#             */
-/*   Updated: 2026/09/14 16:38:52 by ranhaia-         ###   ########.fr       */
+/*   Updated: 2026/09/14 19:54:04 by ranhaia-         ###   ########.fr       */
 /*                                                                            */
 /* ************************************************************************** */
 
@@ -40,7 +40,7 @@ void		Request::set_buffer(char *buffer)
 void		Request::set_method(std::string buffer)
 {
 	(void)buffer;
-	this->method = "GET";
+	this->method = buffer;
 }
 
 void		Request::set_uri(std::string buffer)
@@ -51,4 +51,20 @@ void		Request::set_uri(std::string buffer)
 std::string	Request::get_buffer()
 {
 	return (this->buffer);
+}
+
+std::string Request::get_body()
+{
+    std::string raw_buffer = this->buffer;
+    
+    // Procura onde terminam os cabeçalhos (a linha em branco)
+    size_t pos = raw_buffer.find("\r\n\r\n");
+    
+    // Se não encontrar, significa que não tem corpo
+    if (pos == std::string::npos) {
+        return "";
+    }
+    
+    // Retorna apenas o que vem DEPOIS do \r\n\r\n (que tem 4 caracteres)
+    return raw_buffer.substr(pos + 4);
 }

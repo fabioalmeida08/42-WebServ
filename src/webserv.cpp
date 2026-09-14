@@ -208,9 +208,8 @@ void WebServ::handle_client_read(int client_fd, int index) {
   // FUTURAMENTE PARSEAR, AQUI ELE TA SÓ PEGANDO O BUFFER CRU DA REQUISIÇÃO
   req.set_buffer(buffer);
   std::cout << "Requisição recebida:\n" << req.get_buffer() << std::endl;
-  // a função já tá setando como / de forma automática de qualquer forma
-  req.set_uri("/");
   req.set_method("GET");
+  req.set_uri("/");
 
   // Pegando a configuração do server
   int listen_index = _client_listen[client_fd];

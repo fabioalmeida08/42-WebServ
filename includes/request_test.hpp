@@ -6,7 +6,7 @@
 /*   By: ranhaia- <ranhaia-@student.42.fr>          +#+  +:+       +#+        */
 /*                                                +#+#+#+#+#+   +#+           */
 /*   Created: 2026/08/19 18:15:19 by ranhaia-          #+#    #+#             */
-/*   Updated: 2026/08/19 18:28:55 by ranhaia-         ###   ########.fr       */
+/*   Updated: 2026/09/14 19:38:28 by ranhaia-         ###   ########.fr       */
 /*                                                                            */
 /* ************************************************************************** */
 
@@ -28,9 +28,11 @@ public:
 	std::string	get_method();
 	std::string	get_uri();
 	std::string	get_buffer();
+	std::string get_body();
 	void		set_buffer(char *buffer);
 	void		set_method(std::string buffer);
 	void		set_uri(std::string buffer);
+	
 	
 };
 
