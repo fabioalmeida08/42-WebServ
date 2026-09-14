@@ -6,7 +6,7 @@
 /*   By: ranhaia- <ranhaia-@student.42.fr>          +#+  +:+       +#+        */
 /*                                                +#+#+#+#+#+   +#+           */
 /*   Created: 2026/08/19 18:52:15 by ranhaia-          #+#    #+#             */
-/*   Updated: 2026/08/19 19:55:11 by ranhaia-         ###   ########.fr       */
+/*   Updated: 2026/09/14 14:15:38 by ranhaia-         ###   ########.fr       */
 /*                                                                            */
 /* ************************************************************************** */
 
@@ -32,9 +32,10 @@ public:
 	Response();
 	~Response();
 
-	void    set_status(int code);
-	void    set_header(const std::string &key, const std::string &value);
-	void    set_body(const std::string &body);
+	void    	set_status(int code);
+	void    	set_header(const std::string &key, const std::string &value);
+	void    	set_body(const std::string &body);
+	std::string	get_status_msg();
 
 	std::string build();
 

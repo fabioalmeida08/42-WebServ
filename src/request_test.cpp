@@ -6,7 +6,7 @@
 /*   By: ranhaia- <ranhaia-@student.42.fr>          +#+  +:+       +#+        */
 /*                                                +#+#+#+#+#+   +#+           */
 /*   Created: 2026/08/19 18:24:01 by ranhaia-          #+#    #+#             */
-/*   Updated: 2026/08/19 18:32:49 by ranhaia-         ###   ########.fr       */
+/*   Updated: 2026/09/14 16:38:52 by ranhaia-         ###   ########.fr       */
 /*                                                                            */
 /* ************************************************************************** */
 
@@ -14,7 +14,7 @@
 
 Request::Request()
 {
-	std::cout << "request chamada" << "\n";
+	std::cout << "parser request chamada" << "\n";
 }
 
 Request::~Request()
@@ -45,8 +45,7 @@ void		Request::set_method(std::string buffer)
 
 void		Request::set_uri(std::string buffer)
 {
-	(void)buffer;
-	this->uri = "/";
+	this->uri = buffer;
 }
 
 std::string	Request::get_buffer()

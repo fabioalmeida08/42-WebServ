@@ -126,23 +126,6 @@ int WebServ::find_listen_index(int fd) const {
   return -1;
 }
 
-std::string  WebServ::load_index()
-{
-    // Vou preencher o body com o index.html que ta na pasta www
-    // TODO: testar com imagens, icones (.ico) e se possível vídeos
-    std::ifstream index("./www/index.html");
-    if (!index.is_open())
-    {
-          std::cerr << "Error opening index.html" << std::endl;
-          return ("");
-    }
-    std::string body((std::istreambuf_iterator<char>(index)),
-                      std::istreambuf_iterator<char>());
-
-    index.close();
-    return (body);
-}
-
 bool WebServ::run() {
   if (!setup_server())
     return false;
@@ -219,28 +202,29 @@ void WebServ::handle_client_read(int client_fd, int index) {
   }
 
   buffer[bytes_rcv] = '\0';
+  //////////////////////////////////////////////////////
+  Request req;
 
-  Request test;
+  // FUTURAMENTE PARSEAR, AQUI ELE TA SÓ PEGANDO O BUFFER CRU DA REQUISIÇÃO
+  req.set_buffer(buffer);
+  std::cout << "Requisição recebida:\n" << req.get_buffer() << std::endl;
+  // a função já tá setando como / de forma automática de qualquer forma
+  req.set_uri("/");
+  req.set_method("GET");
 
-  test.set_buffer(buffer);
-  std::cout << "Requisição recebida:\n" << test.get_buffer() << std::endl;
+  // Pegando a configuração do server
+  int listen_index = _client_listen[client_fd];
+  Server  &my_server = _servers[_listen_sockets[listen_index].server_indexes[0]];
 
-  Response  response;
+  // Classe router que faz o roteamento e o tratamento das requisições, retornando erro também se for preciso
+  Router  router;
 
-  std::string body = load_index();
-  if (body == "")
-    return;
-  response.set_status(200);
-  response.set_header("Content-Type", "text/html");
-  response.set_body(body);
-  // char response[1024];
+  Response  response = router.handle_request(req, my_server);
+  
+  // Criando a response final que vai ser enviada pelo send
   std::string final_response = response.build();
 
-  // snprintf(response, sizeof(response),
-  //          "HTTP/1.1 200 OK\r\nContent-Type: text/html\r\nContent-Length: "
-  //          "%zu\r\n\r\n%s",
-  //          body.size(), body.c_str());
-
+  //////////////////////////////////////////////////////
   send(client_fd, final_response.data(), final_response.size(), 0);
 
   _client_listen.erase(client_fd);

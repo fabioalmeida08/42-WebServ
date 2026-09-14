@@ -6,7 +6,7 @@
 /*   By: ranhaia- <ranhaia-@student.42.fr>          +#+  +:+       +#+        */
 /*                                                +#+#+#+#+#+   +#+           */
 /*   Created: 2026/07/27 12:03:51 by fabio             #+#    #+#             */
-/*   Updated: 2026/08/19 18:56:40 by ranhaia-         ###   ########.fr       */
+/*   Updated: 2026/09/14 14:04:13 by ranhaia-         ###   ########.fr       */
 /*                                                                            */
 /* ************************************************************************** */
 
@@ -30,6 +30,7 @@
 #include "../includes/server.hpp"
 #include "../includes/request_test.hpp"
 #include "../includes/response.hpp"
+#include "../includes/router.hpp"
 
 class WebServ {
   private:
@@ -55,7 +56,6 @@ class WebServ {
     int find_listen_index(int fd) const;
     bool set_non_blocking(int fd);
     void add_poll_fd(int fd, short events);
-    std::string  load_index();
 
     //NOTE: declarado aqui mas não implementado porque não queremos uma
     //cópia do webserv, deve existir somente um

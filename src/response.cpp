@@ -6,7 +6,7 @@
 /*   By: ranhaia- <ranhaia-@student.42.fr>          +#+  +:+       +#+        */
 /*                                                +#+#+#+#+#+   +#+           */
 /*   Created: 2026/08/19 18:52:08 by ranhaia-          #+#    #+#             */
-/*   Updated: 2026/08/19 19:55:06 by ranhaia-         ###   ########.fr       */
+/*   Updated: 2026/09/14 14:15:58 by ranhaia-         ###   ########.fr       */
 /*                                                                            */
 /* ************************************************************************** */
 
@@ -88,6 +88,10 @@ void	Response::_set_status_msg()
 	}
 }
 
+std::string	Response::get_status_msg()
+{
+	return this->_status_msg;
+}
 
 std::string Response::build()
 {
