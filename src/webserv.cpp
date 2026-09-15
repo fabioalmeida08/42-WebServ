@@ -7,6 +7,7 @@
 #include <sys/socket.h>
 #include <fstream>
 #include <bits/stdc++.h>
+#include "../includes/request_test.hpp"
 
 WebServ::WebServ() : _reuse_addr(1), _backlog(128) {}
 
@@ -125,23 +126,6 @@ int WebServ::find_listen_index(int fd) const {
   return -1;
 }
 
-std::string  WebServ::load_index()
-{
-    // Vou preencher o body com o index.html que ta na pasta www
-    // TODO: testar com imagens, icones (.ico) e se possível vídeos
-    std::ifstream index("./www/index.html");
-    if (!index.is_open())
-    {
-          std::cerr << "Error opening index.html" << std::endl;
-          return ("");
-    }
-    std::string body((std::istreambuf_iterator<char>(index)),
-                      std::istreambuf_iterator<char>());
-
-    index.close();
-    return (body);
-}
-
 bool WebServ::run() {
   if (!setup_server())
     return false;
@@ -218,18 +202,29 @@ void WebServ::handle_client_read(int client_fd, int index) {
   }
 
   buffer[bytes_rcv] = '\0';
-  std::cout << "Requisição recebida:\n" << buffer << std::endl;
+  //////////////////////////////////////////////////////
+  Request req;
 
-  std::string body = load_index();
-  if (body == "")
-    return;
-  char response[1024];
-  snprintf(response, sizeof(response),
-           "HTTP/1.1 200 OK\r\nContent-Type: text/html\r\nContent-Length: "
-           "%zu\r\n\r\n%s",
-           body.size(), body.c_str());
+  // FUTURAMENTE PARSEAR, AQUI ELE TA SÓ PEGANDO O BUFFER CRU DA REQUISIÇÃO
+  req.set_buffer(buffer);
+  std::cout << "Requisição recebida:\n" << req.get_buffer() << std::endl;
+  req.set_method("GET");
+  req.set_uri("/");
 
-  send(client_fd, response, strlen(response), 0);
+  // Pegando a configuração do server
+  int listen_index = _client_listen[client_fd];
+  Server  &my_server = _servers[_listen_sockets[listen_index].server_indexes[0]];
+
+  // Classe router que faz o roteamento e o tratamento das requisições, retornando erro também se for preciso
+  Router  router;
+
+  Response  response = router.handle_request(req, my_server);
+  
+  // Criando a response final que vai ser enviada pelo send
+  std::string final_response = response.build();
+
+  //////////////////////////////////////////////////////
+  send(client_fd, final_response.data(), final_response.size(), 0);
 
   _client_listen.erase(client_fd);
   close(client_fd);

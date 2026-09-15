@@ -2,3 +2,4 @@ bin/
 objs/
 .clangd
 en.subject.pdf
+.vscode
