@@ -6,40 +6,40 @@
 /*   By: lbento <lbento@student.42.fr>              +#+  +:+       +#+        */
 /*                                                +#+#+#+#+#+   +#+           */
 /*   Created: 2026/08/19 18:52:15 by ranhaia-          #+#    #+#             */
-/*   Updated: 2026/09/14 22:14:52 by lbento           ###   ########.fr       */
+/*   Updated: 2026/09/26 23:13:48 by lbento           ###   ########.fr       */
 /*                                                                            */
 /* ************************************************************************** */
 
 #ifndef RESPONSE_HPP
 # define RESPONSE_HPP
 
-#include <iostream>
-#include <map>
-#include <string>
-#include <sstream>
+# include <map>
+# include <string>
+# include "server.hpp"
 
-class	Response
+class Response
 {
-private:
-	int			_status_code;
-	std::string	_status_msg;
-	std::string	_body;
-	std::map<std::string, std::string> _headers;
+	private:
+		int			_status_code;
+		std::string	_status_msg;
+		std::string	_body;
+		std::map<std::string, std::string>	_headers;
+	public:
+		Response();
+		~Response();
+		Response(const Response &other);
+		Response &operator=(const Response &other);
+		void	set_status(int code);
+		void	set_header(const std::string &name, const std::string &value);
+		void	set_body(const std::string &body);
 
-	void	_set_status_msg();
+		int	get_status() const;
+		const std::string	&get_status_msg() const;
 
-public:
-	Response();
-	~Response();
+		std::string	build() const;
+		void	clear();
 
-	void    	set_status(int code);
-	void    	set_header(const std::string &key, const std::string &value);
-	void    	set_body(const std::string &body);
-	std::string	get_status_msg();
-
-	std::string build();
-
-	void    clear();
+		static Response	error(int code, const Server &server);
 };
 
 #endif
