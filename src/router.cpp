@@ -3,14 +3,15 @@
 /*                                                        :::      ::::::::   */
 /*   router.cpp                                         :+:      :+:    :+:   */
 /*                                                    +:+ +:+         +:+     */
-/*   By: ranhaia- <ranhaia-@student.42.fr>          +#+  +:+       +#+        */
+/*   By: lbento <lbento@student.42.fr>              +#+  +:+       +#+        */
 /*                                                +#+#+#+#+#+   +#+           */
 /*   Created: 2026/09/14 13:58:53 by ranhaia-          #+#    #+#             */
-/*   Updated: 2026/09/14 20:06:28 by ranhaia-         ###   ########.fr       */
+/*   Updated: 2026/09/26 23:38:21 by lbento           ###   ########.fr       */
 /*                                                                            */
 /* ************************************************************************** */
 
 #include "../includes/router.hpp"
+#include "../includes/mime.hpp"
 
 const Location* Router::_match_location(const std::string &uri, const std::vector<Location> &locations)
 {
@@ -44,59 +45,12 @@ std::string     Router::_build_physical_path(const std::string &uri, const Locat
 
 std::string     Router::_get_mime_type(const std::string &filepath)
 {
-	size_t		pos = filepath.find_last_of('.');
-	std::string	mime_type;
-
-	if (pos == std::string::npos)
-		return ("application/octet-stream");
-	mime_type = filepath.substr(pos);
-	if (mime_type == ".html")
-		return ("text/html");	
-	else if (mime_type == ".css")
-		return ("text/css");
-	else if (mime_type == ".png")
-		return ("image/png");
-	else if (mime_type == ".jpg" || mime_type == ".jpeg")
-		return ("image/jpeg");
-	else if (mime_type == ".py")
-		return ("text/plain");
-	else
-		return ("text/plain");
+	return (Mime::get_type(filepath));
 }
 
 Response        Router::_generate_error_response(int status_code, const Server &server)
 {
-	Response	err;
-	std::map<int, std::string> pages = server.get_error_pages();
-	std::map<int, std::string>::const_iterator it = pages.find(status_code);
-	int	page_loaded = 0;
-
-	err.set_status(status_code);
-	err.set_header("Content-Type", "text/html");
-
-	if (it != pages.end())
-	{
-		std::string	filepath = it->second;
-		if (!filepath.empty() && filepath[0] == '/')
-			filepath = "." + filepath;
-		std::ifstream file(filepath.c_str());
-		if (file.is_open())
-		{
-			std::string error_page((std::istreambuf_iterator<char>(file)), std::istreambuf_iterator<char>());
-			err.set_body(error_page);
-			page_loaded = 1;
-			file.close();
-		}
-	}
-	if (!page_loaded)
-	{
-		std::stringstream ss;
-		ss << status_code;
-		std::string	status_msg = err.get_status_msg();
-		std::string err_msg = "<html><body><h1> " + ss.str() + " - " + status_msg + " </h1></body></html>";
-		err.set_body(err_msg);
-	}
-	return (err);
+	return (Response::error(status_code, server));
 }
 
 Response Router::_generate_autoindex(const std::string &filepath, const std::string &uri, const Server &server_config)
@@ -144,17 +98,18 @@ Response Router::_generate_autoindex(const std::string &filepath, const std::str
 
 Router::Router()
 {
+
 }
 Router::~Router()
 {
-	
+
 }
 
 Response		Router::_handle_get_request(Request &req, const Server &server_config, const Location* best_match)
 {
 	Response	response;
 	// Retorna onde o arquivo está
-	std::string filepath = _build_physical_path(req.get_uri(), best_match);
+	std::string filepath = _build_physical_path(req.get_path(), best_match);
 	struct	stat	path_info;
 	if (stat(filepath.c_str(), &path_info) < 0)
 		return _generate_error_response(404, server_config);
@@ -176,7 +131,7 @@ Response		Router::_handle_get_request(Request &req, const Server &server_config,
 	{
 		// criar autoindex
 		if (best_match->get_autoindex())
-			return _generate_autoindex(dir_path, req.get_uri(), server_config);
+			return _generate_autoindex(dir_path, req.get_path(), server_config);
 		else
 			return _generate_error_response(404, server_config);
 	}
@@ -201,12 +156,12 @@ Response		Router::_handle_post_request(Request &req, const Server &server_config
 	if (upload_dir.empty())
 		return _generate_error_response(403, server_config);
 
-	size_t pos = req.get_uri().find_last_of('/');
+	size_t pos = req.get_path().find_last_of('/');
 	std::string filename;
 	if (pos == std::string::npos)
-		filename = req.get_uri();
+		filename = req.get_path();
 	else
-		filename = req.get_uri().substr(pos + 1);
+		filename = req.get_path().substr(pos + 1);
 
 	std::string filepath = upload_dir + "/" + filename;
 
@@ -233,18 +188,18 @@ Response		Router::_handle_del_request(Request &req, const Server &server_config,
 	// Se essa rota lida com uploads, o arquivo está lá
 	if (!upload_dir.empty())
 	{
-		size_t pos = req.get_uri().find_last_of('/');
+		size_t pos = req.get_path().find_last_of('/');
 		std::string filename;
 		if (pos == std::string::npos)
-			filename = req.get_uri();
+			filename = req.get_path();
 		else
-			filename = req.get_uri().substr(pos + 1);
+			filename = req.get_path().substr(pos + 1);
 			
 		filepath = upload_dir + "/" + filename;
 	}
 	else
 	{
-		filepath = _build_physical_path(req.get_uri(), best_match);
+		filepath = _build_physical_path(req.get_path(), best_match);
 	}
 	// Verifica se o arquivo existe
 	if (access(filepath.c_str(), F_OK) != 0)
@@ -262,7 +217,7 @@ Response		Router::_handle_del_request(Request &req, const Server &server_config,
 
 Response Router::handle_request(Request &req, const Server &server_config) {
 	Response response;
-	std::string uri = req.get_uri();
+	std::string uri = req.get_path();
 	
 	// Achar o Location
 	const Location* best_match = _match_location(uri, server_config.get_locations());
