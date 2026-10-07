@@ -45,6 +45,7 @@ class Location {
     void set_path(const std::string &path);
     void set_root(const std::string &root);
     void add_method(const std::string &method);
+    void set_methods(const std::vector<std::string> &methods);
     void set_index(const std::string &index);
     void set_autoindex(bool autoindex);
     void set_upload_store(const std::string &upload_store);

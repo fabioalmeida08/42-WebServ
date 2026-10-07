@@ -1,3 +1,15 @@
+/* ************************************************************************** */
+/*                                                                            */
+/*                                                        :::      ::::::::   */
+/*   location.cpp                                       :+:      :+:    :+:   */
+/*                                                    +:+ +:+         +:+     */
+/*   By: lbento <lbento@student.42.fr>              +#+  +:+       +#+        */
+/*                                                +#+#+#+#+#+   +#+           */
+/*   Created: 2026/09/26 23:17:33 by lbento            #+#    #+#             */
+/*   Updated: 2026/09/26 23:17:55 by lbento           ###   ########.fr       */
+/*                                                                            */
+/* ************************************************************************** */
+
 #include "../includes/location.hpp"
 
 Location::Location()
@@ -40,6 +52,11 @@ void Location::set_root(const std::string &root) { _root = root; }
 
 void Location::add_method(const std::string &method) {
   _methods.push_back(method);
+}
+
+void Location::set_methods(const std::vector<std::string> &methods)
+{
+  _methods = methods;
 }
 
 void Location::set_index(const std::string &index) { _index = index; }
