@@ -137,6 +137,7 @@ def main():
 
         # --- conexoes ociosas: conecta e nunca manda nada -------------
         idles = []
+        idle_opened_at = time.time()
         for _ in range(args.idle):
             try:
                 s = socket.create_connection((args.host, args.port), 5)
@@ -204,27 +205,40 @@ def main():
             fail("apos o stress o servidor nao respondeu: %r" % exc)
 
         # --- as ociosas devem ter sido cortadas pelo 408 --------------
-        # (o timeout de 60s; so da pra conferir se --timeout passar dele)
-        if args.timeout > 61:
+        # (o timeout do servidor e de 60s; o cliente precisa esperar mais
+        # que isso para conseguir ler a resposta antes de estourar)
+        if args.timeout > 60:
+            # O servidor so corta depois de 60s, entao o teste precisa
+            # ESPERAR de verdade antes de ler: sem isso ele so conta as
+            # respostas que ja chegaram e mente sobre o resultado.
+            espera = 62.0 - (time.time() - idle_opened_at)
+            if espera > 0:
+                print("      (esperando os 60s do REQUEST_TIMEOUT: %.0fs)"
+                      % espera)
+                time.sleep(espera)
             answered = 0
             for s in idles:
                 s.setblocking(True)
-                s.settimeout(2)
+                s.settimeout(5)
                 try:
                     if s.recv(1024):
                         answered += 1
                 except OSError:
                     pass
                 s.close()
-            if answered:
-                ok("%d conexoes ocias receberam 408" % answered)
+            if idles and answered == len(idles):
+                ok("%d/%d conexoes ociosas receberam 408"
+                   % (answered, len(idles)))
+            elif answered:
+                fail("so %d/%d conexoes ociosas receberam 408"
+                     % (answered, len(idles)))
             else:
                 fail("conexoes ociosas ficaram presas sem resposta")
         else:
             for s in idles:
                 s.close()
             print("      (conexoes ociosas fechadas pelo teste; para ver "
-                  "o 408 use --timeout 61)")
+                  "o 408 use --timeout 62, leva ~65s)")
 
         # --- fd e memoria --------------------------------------------
         for _ in range(20):

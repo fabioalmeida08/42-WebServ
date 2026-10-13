@@ -140,7 +140,7 @@ baseline (no leak) and that the process memory did not grow.
 | `--concurrency` | 500 | simultaneous requests |
 | `--idle` | 100 | connections held open without sending anything |
 | `--cgi` | off | half of the requests go through CGI (`fork` per request) |
-| `--timeout` | 60 | client timeout; raise it above 61 to observe the server's `408` on the idle connections |
+| `--timeout` | 60 | client timeout; set it to `62` to observe the server's `408` on the idle connections (the test then waits the full 60 s, so it takes ~65 s) |
 
 ## Resources
 
