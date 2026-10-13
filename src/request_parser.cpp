@@ -267,7 +267,8 @@ bool	RequestParser::parse_request_line()
 		return fail(400);
 	if (version[5] != '1')
 		return fail(505);
-	if (method != "GET" && method != "POST" && method != "DELETE")
+	if (method != "GET" && method != "POST" && method != "DELETE"
+		&& method != "HEAD")
 		return fail(501);
 	if (!parse_target(target))
 		return false;
@@ -371,6 +372,8 @@ bool	RequestParser::start_body()
 		_state = (length == 0) ? COMPLETE : BODY;
 		return true;
 	}
+	if (_request.get_method() == "POST")
+		return fail(411); // POST sem Content-Length nem chunked: nginx responde 411
 	_state = COMPLETE;
 	return true;
 }

@@ -24,6 +24,7 @@ class Response
 		std::string	_status_msg;
 		std::map<std::string, std::string>	_headers;
 		std::string	_body;
+		bool	_no_body;
 	public:
 		Response();
 		Response(const Response &other);
@@ -33,6 +34,7 @@ class Response
 		void	set_status(int code);
 		void	set_header(const std::string &name, const std::string &value);
 		void	set_body(const std::string &body);
+		void	set_no_body(bool no_body);
 
 		int	get_status() const;
 		const std::string	&get_status_msg() const;

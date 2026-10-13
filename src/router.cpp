@@ -11,7 +11,25 @@
 /* ************************************************************************** */
 
 #include "../includes/router.hpp"
+#include "../includes/http_utils.hpp"
 #include "../includes/mime.hpp"
+#include <algorithm>
+
+static bool	is_dir_path(const std::string &path)
+{
+	return !path.empty() && path[path.size() - 1] == '/';
+}
+
+// O prefixo precisa bater na fronteira de um segmento: "location /files" nao
+// pode casar com "/files2".
+static bool	path_matches(const std::string &uri, const std::string &path)
+{
+	if (uri.compare(0, path.size(), path) != 0)
+		return false;
+	if (is_dir_path(path) || uri.size() == path.size())
+		return true;
+	return uri[path.size()] == '/';
+}
 
 const Location* Router::_match_location(const std::string &uri, const std::vector<Location> &locations)
 {
@@ -20,13 +38,11 @@ const Location* Router::_match_location(const std::string &uri, const std::vecto
 
 	for (size_t i = 0; i < locations.size(); i++)
 	{
-		if (uri.find(locations[i].get_path()) == 0)
+		if (path_matches(uri, locations[i].get_path())
+			&& locations[i].get_path().length() > max_len)
 		{
-			if (locations[i].get_path().length() > max_len)
-			{
-				max_len = locations[i].get_path().length();
-				best_match = &locations[i];
-			}
+			max_len = locations[i].get_path().length();
+			best_match = &locations[i];
 		}
 	}
 	return (best_match);
@@ -59,36 +75,45 @@ Response Router::_generate_autoindex(const std::string &filepath, const std::str
 	DIR *dir;
 	struct dirent *entry;
 	std::string html;
+	std::vector<std::string> names;
 
-	// Tenta abrir o diretório
 	dir = opendir(filepath.c_str());
 	if (dir == NULL) {
 		return _generate_error_response(403, server_config);
 	}
 
-	// Cabeçalho do index
-	html = "<html><head><title>Index of " + uri + "</title></head><body>";
-	html += "<h1>Index of " + uri + "</h1><hr><pre>";
-
 	while ((entry = readdir(dir)) != NULL) {
 		std::string filename = entry->d_name;
-		
-		if (filename == ".") continue;
-		std::string href = uri;
-		if (href[href.length() - 1] != '/')
-			href += "/";
-		href += filename;
+		if (filename == "." || filename == "..")
+			continue;
+		names.push_back(filename);
+	}
+	closedir(dir);
+	std::sort(names.begin(), names.end());
 
-		if (entry->d_type == DT_DIR) {
-			filename += "/";
-		}
-		html += "<a href=\"" + href + "\">" + filename + "</a>\n";
+	std::string base = uri;
+	if (base.empty() || base[base.size() - 1] != '/')
+		base += "/";
+
+	html = "<html>\n<head><title>Index of " + HttpUtils::html_escape(uri) + "</title></head>\n";
+	html += "<body>\n<h1>Index of " + HttpUtils::html_escape(uri) + "</h1><hr><pre>\n";
+
+	for (size_t i = 0; i < names.size(); i++) {
+		std::string name = names[i];
+		std::string full = filepath;
+		struct stat info;
+
+		if (full.empty() || full[full.size() - 1] != '/')
+			full += "/";
+		full += name;
+		if (stat(full.c_str(), &info) == 0 && S_ISDIR(info.st_mode))
+			name += "/";
+		html += "<a href=\"" + base + HttpUtils::url_encode(name) + "\">";
+		html += HttpUtils::html_escape(name) + "</a>\n";
 	}
 
-	html += "</pre><hr></body></html>";
-	closedir(dir);
+	html += "</pre><hr>\n</body>\n</html>\n";
 
-	// Preenche a Response e retorna
 	res.set_status(200);
 	res.set_header("Content-Type", "text/html");
 	res.set_body(html);
@@ -118,13 +143,27 @@ Response		Router::_handle_get_request(Request &req, const Server &server_config,
 	// Verifica se é diretório
 	if (S_ISDIR(path_info.st_mode))
 	{
-		std::string	index_file = best_match->get_index();
-		if (!index_file.empty())
+		// Sem a barra final o browser resolve os links do autoindex relativos
+		// ao pai; manda um 301 como o nginx faz.
+		if (!is_dir_path(req.get_path()))
 		{
-			if (filepath[filepath.length() - 1] != '/')
-				filepath += "/";
-			filepath += index_file;
+			Response	redirect;
+			std::string	location = req.get_path() + "/";
+
+			if (!req.get_query().empty())
+				location += "?" + req.get_query();
+			redirect.set_status(301);
+			redirect.set_header("Location", location);
+			return (redirect);
 		}
+		std::string	index_file = best_match->get_index();
+		if (index_file.empty())
+		{
+			if (best_match->get_autoindex())
+				return _generate_autoindex(dir_path, req.get_path(), server_config);
+			return _generate_error_response(404, server_config);
+		}
+		filepath += index_file;
 	}
 	// Checa as permissões de leitura e se o arquivo existe
 	if (access(filepath.c_str(), F_OK) != 0)
@@ -157,11 +196,10 @@ Response		Router::_handle_post_request(Request &req, const Server &server_config
 		return _generate_error_response(403, server_config);
 
 	size_t pos = req.get_path().find_last_of('/');
-	std::string filename;
-	if (pos == std::string::npos)
-		filename = req.get_path();
-	else
-		filename = req.get_path().substr(pos + 1);
+	std::string filename = (pos == std::string::npos) ? req.get_path()
+	                                                  : req.get_path().substr(pos + 1);
+	if (filename.empty())
+		return _generate_error_response(400, server_config);
 
 	std::string filepath = upload_dir + "/" + filename;
 
@@ -189,12 +227,10 @@ Response		Router::_handle_del_request(Request &req, const Server &server_config,
 	if (!upload_dir.empty())
 	{
 		size_t pos = req.get_path().find_last_of('/');
-		std::string filename;
-		if (pos == std::string::npos)
-			filename = req.get_path();
-		else
-			filename = req.get_path().substr(pos + 1);
-			
+		std::string filename = (pos == std::string::npos) ? req.get_path()
+		                                                  : req.get_path().substr(pos + 1);
+		if (filename.empty())
+			return _generate_error_response(400, server_config);
 		filepath = upload_dir + "/" + filename;
 	}
 	else
@@ -227,21 +263,35 @@ Response Router::handle_request(Request &req, const Server &server_config) {
 
 	// Validação de Método
 	std::string	req_method = req.get_method();
-	std::vector<std::string> allowed = best_match->get_methods();
+	const std::vector<std::string> &allowed = best_match->get_methods();
 	bool is_allowed = false;
-	
+
+	// HEAD é o mesmo que GET, só sem corpo; nginx aceita um sem o outro
 	for (size_t i = 0; i < allowed.size(); i++)
 	{
-		if (allowed[i] == req_method)
+		if (allowed[i] == req_method
+			|| (req_method == "HEAD" && allowed[i] == "GET"))
 		{
 			is_allowed = true;
 			break;
 		}
 	}
 	if (!is_allowed)
-		return _generate_error_response(405, server_config); // Method Not Allowed
+	{
+		Response	refused = _generate_error_response(405, server_config);
+		std::string	allow;
 
-	if (req_method == "GET")
+		for (size_t i = 0; i < allowed.size(); i++)
+		{
+			if (i > 0)
+				allow += ", ";
+			allow += allowed[i];
+		}
+		refused.set_header("Allow", allow);
+		return refused; // Method Not Allowed
+	}
+
+	if (req_method == "GET" || req_method == "HEAD")
 		response = _handle_get_request(req, server_config, best_match);
 	else if (req_method == "POST")
 		response = _handle_post_request(req, server_config, best_match);
