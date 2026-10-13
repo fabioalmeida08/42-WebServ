@@ -40,7 +40,15 @@ class Cgi
 		pid_t			_pid;
 		int				_in_fd;
 		int				_out_fd;
-		std::string		_out_buffer;
+		// Cabecalho do CGI ("Status:", "Content-Type:", ...) fica em
+		// memoria porque e pequeno e precisa ser parseado; o corpo vai
+		// direto pra um arquivo temporario, ja que uma resposta de 100MB
+		// nao pode passar pela RAM do servidor.
+		std::string		_head;
+		std::string		_tmp_path;
+		int				_tmp_fd;
+		bool			_header_done;
+		size_t			_body_size;
 		bool			_eof;
 		bool			_reaped;
 		int				_exit_status;
@@ -48,6 +56,8 @@ class Cgi
 
 		void	_close_in();
 		void	_close_out();
+		bool	_open_tmp();
+		void	_spill(const char *data, size_t size);
 		void	_build_env(const Request &req, const Server &srv,
 		                    const Location &loc, const std::string &remote_addr,
 		                    std::vector<std::string> &env) const;
@@ -66,6 +76,9 @@ class Cgi
 		int		out_fd() const;
 		pid_t	pid() const;
 		const std::string	&script_path() const;
+		// Caminho do arquivo temporario com o corpo da resposta. Devolve o
+		// caminho e se desobriga: quem chama passa a cuidar de apaga-lo.
+		std::string	take_tmp_path();
 
 		// Escreve o corpo do request no stdin do CGI. Devolve true quando
 		// todo o corpo ja foi escrito e o pipe foi fechado (o CGI precisa

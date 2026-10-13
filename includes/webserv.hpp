@@ -67,7 +67,6 @@ class WebServ {
 		size_t file_buffer_pos;
 		// Corpo do request que ainda falta escrever no stdin do CGI
 		Cgi cgi;
-		std::string cgi_body;
 		size_t cgi_body_sent;
 		std::string remote_addr;
 		Client() : sent(0), state(READING), last_activity(std::time(NULL)),
@@ -105,6 +104,9 @@ class WebServ {
 	void handle_new_connection(int listen_index);
 	void handle_client_events(int client_fd, int index, short revents);
 	bool handle_client_read(int client_fd, int index);
+	// client_max_body_size pode ser sobrescrito por location; a location
+	// so fica sabida depois que a linha de requisicao revela o path
+	void apply_body_limit(Client &client, int client_fd);
 	bool handle_client_write(int client_fd, int index);
 	bool send_file_block(int client_fd, Client &client, int index);
 	void close_file(Client &client);

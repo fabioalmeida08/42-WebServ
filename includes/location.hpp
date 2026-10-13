@@ -25,6 +25,12 @@ class Location {
     bool _autoindex;
     std::string _upload_store;
     std::string _cgi_ext;
+    // Executavel chamado para a extensao do CGI; vazio = executa o proprio
+    // arquivo (shebang). O tester oficial da 42 manda em "cgi .bla <bin>"
+    // porque o conteudo do .bla nao precisa ser um script.
+    std::string _cgi_exec;
+    // 0 = nao declarado -> herda o client_max_body_size do server
+    size_t _max_body_size;
     int _redirect_code;
     std::string _redirect_target;
 
@@ -36,6 +42,12 @@ class Location {
     // Compartilhada pelo Router e pelo Server (error_page).
     static const Location *match(const std::string &uri,
                                  const std::vector<Location> &locations);
+    // Caminho de disco de uma URI dentro desta location. O subject e
+    // explicito: "if URL /kapouet is rooted to /tmp/www, URL
+    // /kapouet/pouic/toto/pouet will search for /tmp/www/pouic/toto/pouet"
+    // — o prefixo da location sai da URL antes de entrar na root.
+    static std::string resolve_path(const std::string &uri,
+                                    const Location &loc);
 
     const std::string &get_path() const;
     const std::string &get_root() const;
@@ -44,6 +56,8 @@ class Location {
     bool get_autoindex() const;
     const std::string &get_upload_store() const;
     const std::string &get_cgi_ext() const;
+    const std::string &get_cgi_exec() const;
+    size_t get_max_body_size() const;
     int get_redirect_code() const;
     const std::string &get_redirect_target() const;
 
@@ -55,6 +69,8 @@ class Location {
     void set_autoindex(bool autoindex);
     void set_upload_store(const std::string &upload_store);
     void set_cgi_ext(const std::string &cgi_ext);
+    void set_cgi_exec(const std::string &cgi_exec);
+    void set_max_body_size(size_t max_body_size);
     void set_redirect(int code, const std::string &target);
 };
 

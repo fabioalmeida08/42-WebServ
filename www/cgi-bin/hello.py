@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 import os, sys, html
 body = sys.stdin.read(int(os.environ.get("CONTENT_LENGTH") or 0))
-keys = ["REQUEST_METHOD","QUERY_STRING","CONTENT_TYPE","CONTENT_LENGTH","SCRIPT_NAME","PATH_INFO","SERVER_PROTOCOL","SERVER_NAME","SERVER_PORT"]
+keys = ["REQUEST_METHOD","QUERY_STRING","CONTENT_TYPE","CONTENT_LENGTH","SCRIPT_NAME","PATH_INFO","SERVER_PROTOCOL","SERVER_NAME","SERVER_PORT","REQUEST_URI","HTTP_X_SMOKE"]
 rows = "".join(f"<tr><td>{k}</td><td>{html.escape(os.environ.get(k,''))}</td></tr>" for k in keys)
 out = f"""<!DOCTYPE html><html><head><meta charset="UTF-8"><title>CGI ok</title>
 <style>body{{background:#0b0d12;color:#e6e9ef;font:14px system-ui;padding:32px}}h1{{color:#7cf0c4}}

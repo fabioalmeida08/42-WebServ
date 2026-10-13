@@ -39,7 +39,7 @@ std::string Server::resolve_error_page(int code) const {
   const Location *loc = Location::match(uri, _locations);
   if (loc == NULL)
     return uri;
-  return loc->get_root() + uri;
+  return Location::resolve_path(uri, *loc);
 }
 
 const std::vector<Location> &Server::get_locations() const {

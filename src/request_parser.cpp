@@ -383,6 +383,11 @@ bool	RequestParser::read_body(State next_state)
 	if (_buffer.empty())
 		return false;
 	size_t	count = std::min(_remaining, _buffer.size());
+	// O Content-Length passou pelo teste do limite do server quando os
+	// headers foram lidos, mas o limite da location so e conhecido depois;
+	// se ele for menor, estoura aqui, a cada pedaco recebido.
+	if (_request.get_body().size() + count > _max_body_size)
+		return fail(413);
 	_request.append_body(_buffer.data(), count);
 	_buffer.erase(0, count);
 	_remaining -= count;

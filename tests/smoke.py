@@ -351,9 +351,31 @@ def run_cgi(host, port, slow):
     check("CGI HEAD", st, 200)
     check_true("CGI HEAD sem corpo", len(body) == 0, "%d bytes" % len(body))
 
+    st, _, body = req("GET", "/cgi-bin/hello.py",
+                       headers={"X-Smoke": "marcador-de-header"},
+                       host=host, port=port)
+    check("header vira HTTP_* no CGI", st, 200)
+    # O subject cobra: "The full request and arguments provided by the
+    # client must be available to the CGI". O tester oficial do 42 manda um
+    # X-SECRET-HEADER-FOR-TEST justamente pra conferir isso.
+    check_true("header chega no ambiente do CGI",
+               b"marcador-de-header" in body)
+
+    # A saida do CGI nao passa pela RAM: vai pra um arquivo temporario e e
+    # mandada em blocos pelo mesmo caminho dos arquivos estaticos, entao
+    # um script de 12MB responde 200 inteiro (antes o teto em memoria era
+    # 10MB e virava 500).
+    st, _, body = req("GET", "/cgi-bin/grande.py", host=host, port=port)
+    check("CGI grande (12MB)", st, 200)
+    check_true("CGI grande chega inteiro", len(body) == 12 * 1024 * 1024,
+               "%d bytes" % len(body))
+
     st, _, _ = req("GET", "/cgi-bin/crash.py", host=host, port=port)
     check("CGI quebra (502)", st, 502)
     st, _, _ = req("GET", "/cgi-bin/nao-existe.py", host=host, port=port)
+    # Nao da pra invocar o interpretador num arquivo que nao existe: 502
+    # ("nao deu pra falar com o de tras"). O tester oficial do 42 confirma
+    # — ele manda POST num .bla inexistente e nao aceita 404.
     check("CGI inexistente (502)", st, 502)
     st, _, _ = req("GET", "/cgi-bin/sem-permissao.py", host=host, port=port)
     check("CGI sem +x (502)", st, 502)

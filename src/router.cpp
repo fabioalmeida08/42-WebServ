@@ -23,13 +23,9 @@ static bool	is_dir_path(const std::string &path)
 
 std::string     Router::_build_physical_path(const std::string &uri, const Location *loc)
 {
-	std::string	dir;
-	std::string	final_path;
-
-	dir = loc->get_root();
-	final_path = dir + uri;
-
-	return (final_path);
+	// O prefixo da location nao entra na URL que vira caminho de disco
+	// (exemplo do subject: /kapouet -> /tmp/www)
+	return Location::resolve_path(uri, *loc);
 }
 
 std::string     Router::_get_mime_type(const std::string &filepath)
@@ -136,6 +132,8 @@ Response		Router::_handle_get_request(Request &req, const Server &server_config,
 				return _generate_autoindex(dir_path, req.get_path(), server_config);
 			return _generate_error_response(404, server_config);
 		}
+		if (!is_dir_path(filepath))
+			filepath += "/";
 		filepath += index_file;
 	}
 	// Checa as permissões de leitura e se o arquivo existe
@@ -237,41 +235,17 @@ Response Router::handle_request(Request &req, const Server &server_config, Cgi *
 	if (best_match == NULL)
 		return _generate_error_response(404, server_config); // Not Found
 
-	// Redirecionamento configurado na location (nginx: return 301 ...)
-	if (best_match->get_redirect_code() != 0)
-	{
-		response.set_status(best_match->get_redirect_code());
-		response.set_header("Location", best_match->get_redirect_target());
-		return response;
-	}
-
-	// CGI: antes do dispatch por método, porque um POST pra CGI não é
-	// upload — o corpo vai pro stdin do script, não pro disco
-	if (Cgi::is_cgi_path(uri, *best_match))
-	{
-		if (cgi == NULL)
-			return _generate_error_response(500, server_config);
-		std::string	err;
-		if (!cgi->start(req, server_config, *best_match,
-		                Cgi::script_path_of(uri, *best_match), "", err))
-		{
-			std::cerr << "cgi: " << err << std::endl;
-			return _generate_error_response(502, server_config);
-		}
-		response.set_is_cgi(true);
-		return response;
-	}
-
-	// Validação de Método
+	// Validação de Método — antes do redirect e do CGI: quem manda na
+	// location e a lista "methods". E HEAD NAO herda de GET: o tester
+	// oficial do 42 manda HEAD numa location marcada so com GET e espera
+	// 405, entao quem quiser HEAD precisa declara-lo.
 	std::string	req_method = req.get_method();
 	const std::vector<std::string> &allowed = best_match->get_methods();
 	bool is_allowed = false;
 
-	// HEAD é o mesmo que GET, só sem corpo; nginx aceita um sem o outro
 	for (size_t i = 0; i < allowed.size(); i++)
 	{
-		if (allowed[i] == req_method
-			|| (req_method == "HEAD" && allowed[i] == "GET"))
+		if (allowed[i] == req_method)
 		{
 			is_allowed = true;
 			break;
@@ -290,6 +264,43 @@ Response Router::handle_request(Request &req, const Server &server_config, Cgi *
 		}
 		refused.set_header("Allow", allow);
 		return refused; // Method Not Allowed
+	}
+
+	// Limite de corpo por location. O parser so tinha o valor do server na
+	// hora de ler os headers (a location so fica conhecida depois da linha
+	// de requisicao), entao e aqui que o estouro e barrado de vez.
+	if (best_match->get_max_body_size() > 0
+		&& req.get_body().size() > best_match->get_max_body_size())
+		return _generate_error_response(413, server_config);
+
+	// Redirecionamento configurado na location (nginx: return 301 ...)
+	if (best_match->get_redirect_code() != 0)
+	{
+		response.set_status(best_match->get_redirect_code());
+		response.set_header("Location", best_match->get_redirect_target());
+		return response;
+	}
+
+	// CGI: um POST pra CGI não é upload — o corpo vai pro stdin do script,
+	// não pro disco
+	if (Cgi::is_cgi_path(uri, *best_match))
+	{
+		if (cgi == NULL)
+			return _generate_error_response(500, server_config);
+		// Aqui nao ha o que servir de arquivo: se o script nao existe nao
+		// da pra invocar o interpretador, entao a resposta e 502 (mesmo
+		// racional de "nao deu pra falar com o de tras" do nginx). O
+		// tester oficial do 42 tem justamente um POST pra um .bla que nao
+		// existe (/directory/youpla.bla).
+		std::string	err;
+		if (!cgi->start(req, server_config, *best_match,
+		                Cgi::script_path_of(uri, *best_match), "", err))
+		{
+			std::cerr << "cgi: " << err << std::endl;
+			return _generate_error_response(502, server_config);
+		}
+		response.set_is_cgi(true);
+		return response;
 	}
 
 	if (req_method == "GET" || req_method == "HEAD")

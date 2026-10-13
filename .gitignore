@@ -6,5 +6,8 @@ en.subject.pdf
 www/upload/*
 !www/upload/.gitkeep
 www2/upload/*
-!www2/upload/.gitkeep__pycache__/
+!www2/upload/.gitkeep
+__pycache__/
 *.pyc
+# Binario do cgi_tester oficial da 42 (nao e nosso; copie-o pra ca)
+cgi_test
