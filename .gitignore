@@ -6,4 +6,5 @@ en.subject.pdf
 www/upload/*
 !www/upload/.gitkeep
 www2/upload/*
-!www2/upload/.gitkeep
+!www2/upload/.gitkeep__pycache__/
+*.pyc
