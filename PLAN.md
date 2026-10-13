@@ -194,18 +194,34 @@ O `RequestParser` já deschunka e seta `content-length` → o CGI recebe o body 
 
 1. **Configs de demonstração** (subject: *"You must provide configuration files and default files to test and demonstrate that every feature works"*): `default.conf` cobrindo redirect, autoindex on/off, upload, cgi, error_page; mais um `multiport.conf` com duas portas e roots diferentes.
 2. **Aviso no startup** quando dois blocos `server` dividem a mesma porta (o segundo é inalcançável — vhost fora de escopo, mas deixar explícito).
-3. **Testes:** `tests/smoke.py` cobrindo 200/201/204/301/400/403/404/405/411/413/414/431/501/502/504, traversal, chunked, upload+delete, CGI GET/POST; e `tests/stress.py` (500 conexões concorrentes + 100 ociosas).
-4. **Checklist vs evaluation sheet:**
-   - [ ] Compila `-Wall -Wextra -Werror -std=c++98`
-   - [ ] Nunca lê/escreve socket sem passar pelo poll (só disco é direto)
-   - [ ] Nenhum `errno` após read/write
-   - [ ] `fork` só pra CGI
-   - [ ] Nunca trava: timeout de request e de CGI
-   - [ ] GET/POST/DELETE, upload, site estático completo
-   - [ ] Status corretos + error pages configuradas **e** default
-   - [ ] Stress: servidor continua de pé
-   - [ ] README completo
-   - [ ] `make all / clean / fclean / re / $(NAME)`
+3. **Testes:** `tests/smoke.py` cobrindo 200/201/204/301/400/403/404/405/411/413/414/431/501/502/504/505, traversal, chunked, upload+delete, CGI GET/POST/HEAD, autoindex, envio em blocos e `multiport.conf` (67 asserções, flags `--spawn/--slow/--multiport`); e `tests/stress.py` (500 conexões concorrentes + 100 ociosas, flag `--cgi`).
+4. **Checklist vs evaluation sheet:** ✅ todos aprovados em `6b3339c`
+   - [x] Compila `-Wall -Wextra -Werror -std=c++98`
+   - [x] Nunca lê/escreve socket sem passar pelo poll (só disco é direto)
+   - [x] Nenhum `errno` após read/write
+   - [x] `fork` só pra CGI
+   - [x] Nunca trava: timeout de request (60s) e de CGI (30s), `POLL_TICK_MS` de 1s
+   - [x] GET/POST/DELETE, upload, site estático completo
+   - [x] Status corretos + error pages configuradas **e** default
+   - [x] Stress: servidor continua de pé (fds voltam ao baseline, RSS estável)
+   - [x] README completo
+   - [x] `make all / clean / fclean / re / $(NAME)`
+
+**Bugs achados pelo stress com CGI e corrigidos na Fase 4** (todos reais, todos
+reproduzidos antes de corrigir):
+
+1. O dispatch iterava `_poll_fds` por índice com o `size` congelado no `for`.
+   Como `finish_cgi` apaga os dois pipes e `close_client` apaga pipes + socket,
+   uma iteração apagava mais de uma entrada e o índice apontava pra outro fd —
+   a vítima ficava em `READING` só ouvindo `POLLOUT`, nunca recebia `POLLIN` e
+   morria de `408`. Virou snapshot de `(fd, revents, epoch)` por tick.
+2. `Cgi::mark_eof()` fechava e zerava o `out_fd` **antes** de `finish_cgi()`
+   capturar, então `_cgi_fds.erase(-1)` era no-op e a entrada ficava eterna.
+   Quando `open()` reutilizava o número para um arquivo, o `read(cgi_fd, 4096)`
+   consumia 4096 bytes do arquivo de outro cliente → corpo truncado (21007/25103).
+3. `accept()` de uma em uma com `backlog` 128: fila cheia → kernel manda `RST`.
+4. `recv() == -1` fechava a conexão (EAGAIN não dá pra distinguir sem `errno`) e
+   `POLLHUP` era tratado antes de `POLLIN`, mandando `RST` sem ler o request.
 
 ---
 
