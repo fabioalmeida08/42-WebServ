@@ -27,6 +27,21 @@ const std::map<int, std::string> &Server::get_error_pages() const {
 
 size_t Server::get_client_max_body() const { return _client_max_body; }
 
+std::string Server::resolve_error_page(int code) const {
+  std::map<int, std::string>::const_iterator it = _error_pages.find(code);
+  if (it == _error_pages.end())
+    return std::string();
+
+  const std::string &uri = it->second;
+  if (uri.empty() || uri[0] != '/')
+    return uri; // ja e um caminho de disco, nao uma URI
+
+  const Location *loc = Location::match(uri, _locations);
+  if (loc == NULL)
+    return uri;
+  return loc->get_root() + uri;
+}
+
 const std::vector<Location> &Server::get_locations() const {
   return _locations;
 }

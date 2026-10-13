@@ -38,6 +38,11 @@ class Server {
     size_t get_client_max_body() const;
     const std::vector<Location> &get_locations() const;
 
+    // Converte o caminho do error_page (URI, tipo /errors/404.html) no
+    // caminho fisico no disco, usando o root da location que casa esse
+    // caminho. Devolve vazio se nao ha error_page para o codigo.
+    std::string resolve_error_page(int code) const;
+
     void set_port(int port);
     void set_host(const std::string &host);
     void add_name(const std::string &name);

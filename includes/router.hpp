@@ -26,9 +26,6 @@
 
 class Router {
 private:
-	// Encontra a maior regra de location, /upload, /cgi-bin, /, etc.
-	const Location*	_match_location(const std::string &uri, const std::vector<Location> &locations);
-	
 	// Constrói o caminho físico no disco
 	std::string		_build_physical_path(const std::string &uri, const Location *loc);
 

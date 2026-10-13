@@ -162,15 +162,14 @@ std::string	Response::build() const
 
 Response	Response::error(int code, const Server &server)
 {
-	Response									response;
-	const std::map<int, std::string>			&pages = server.get_error_pages();
-	std::map<int, std::string>::const_iterator	it = pages.find(code);
-	std::string									page;
+	Response	response;
+	std::string	page_path = server.resolve_error_page(code);
+	std::string	page;
 
 	response.set_status(code);
-	if (it != pages.end() && read_file(it->second, page))
+	if (!page_path.empty() && read_file(page_path, page))
 	{
-		response.set_header("Content-Type", Mime::get_type(it->second));
+		response.set_header("Content-Type", Mime::get_type(page_path));
 		response.set_body(page);
 	}
 	else

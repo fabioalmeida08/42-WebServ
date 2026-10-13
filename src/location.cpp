@@ -12,6 +12,37 @@
 
 #include "../includes/location.hpp"
 
+static bool	is_dir_path(const std::string &path)
+{
+	return !path.empty() && path[path.size() - 1] == '/';
+}
+
+// O prefixo precisa bater na fronteira de um segmento: "location /files" nao
+// pode casar com "/files2".
+static bool	path_matches(const std::string &uri, const std::string &path)
+{
+	if (uri.compare(0, path.size(), path) != 0)
+		return false;
+	if (is_dir_path(path) || uri.size() == path.size())
+		return true;
+	return uri[path.size()] == '/';
+}
+
+const Location *Location::match(const std::string &uri,
+                                const std::vector<Location> &locations) {
+  const Location *best_match = NULL;
+  size_t max_len = 0;
+
+  for (size_t i = 0; i < locations.size(); i++) {
+    if (path_matches(uri, locations[i].get_path()) &&
+        locations[i].get_path().length() > max_len) {
+      max_len = locations[i].get_path().length();
+      best_match = &locations[i];
+    }
+  }
+  return best_match;
+}
+
 Location::Location()
     : _path("/"), _root("www"), _index("index.html"), _autoindex(false),
       _redirect_code(0) {
