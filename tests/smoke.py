@@ -358,6 +358,15 @@ def run_cgi(host, port, slow):
     st, _, _ = req("GET", "/cgi-bin/sem-permissao.py", host=host, port=port)
     check("CGI sem +x (502)", st, 502)
 
+    # O subject exige: "The CGI should be run in the correct directory for
+    # relative path file access". O relativo.py abre um arquivo que mora
+    # ao lado dele mesmo — so responde certo se o webserv fizer chdir no
+    # diretorio do script antes do execve.
+    st, _, body = req("GET", "/cgi-bin/relativo.py", host=host, port=port)
+    check("CGI com caminho relativo", st, 200)
+    check_true("CGI enxerga o proprio diretorio",
+               b"RELATIVO-OK:funcionou-dir-certo" in body, body[:60])
+
     if slow:
         t0 = time.time()
         st, _, _ = req("GET", "/cgi-bin/loop.py", host=host, port=port,

@@ -41,7 +41,11 @@ int main(int argc, char *argv[])
 
 		WebServ server;
 		server.loadConfig(servers);
-		server.run();
+		// run() so volta quando o setup falha (porta ocupada, permissao,
+		// etc): sem propagar o erro o processo sairia com 0 e daria a
+		// impressao de que o servidor subiu.
+		if (!server.run())
+			return 1;
 	}
 	catch (const std::exception &e)
 	{

@@ -86,8 +86,14 @@ curl http://127.0.0.1:8081/    # the default site
 curl http://127.0.0.1:8082/    # a second, independent document root
 ```
 
-If two blocks share the same port the second one is unreachable (there is no
-virtual hosting), and the server prints a warning at startup instead of hiding it.
+Two blocks sharing the same port is a configuration error: virtual hosting is
+out of scope (the subject states it explicitly), so there is nothing to serve
+there. The server **refuses to start** (`exit 1`) instead of coming up with a
+dead block. The same applies to a port that is already taken — a second
+`./bin/webserv` on a busy port fails loudly instead of pretending it listens.
+
+`Ctrl-C` and `SIGTERM` shut the server down cleanly: every client, CGI pipe
+and listening socket is closed before `main` returns.
 
 ### Layout
 
@@ -121,8 +127,9 @@ pass/fail table. It covers the status codes (`200/201/204/301/400/403/404/405/
 411/413/414/431/501/502/505`), `HEAD`, `Allow`, the `Date`/`Server` headers,
 path traversal (including `--path-as-is` and raw sockets), chunked bodies,
 upload + delete on disk, autoindex on and off, 64 KB-block file streaming,
-CGI (GET/POST/query/HEAD, crash, non-executable script, oversized output) and
-`multiport.conf` on 8081/8082. Flags:
+CGI (GET/POST/query/HEAD, crash, non-executable script, oversized output,
+script reading a file with a relative path — i.e. `chdir` into the script's
+directory) and `multiport.conf` on 8081/8082. Flags:
 
 | flag | adds |
 | --- | --- |
@@ -133,7 +140,10 @@ CGI (GET/POST/query/HEAD, crash, non-executable script, oversized output) and
 `stress.py` opens idle connections that never send anything, then fires
 `--concurrency` requests in parallel and checks that every one answered `200`,
 that the server still responds afterwards, that file descriptors returned to the
-baseline (no leak) and that the process memory did not grow.
+baseline (no leak) and that the process memory did not grow. It also prints the
+**availability** (share of `2xx` answers) and fails below `99.5%`, which is the
+number the evaluation sheet asks for with `siege -b` — `siege` is not installable
+here, so `stress.py` measures the same thing directly.
 
 | flag | default | meaning |
 | --- | --- | --- |
