@@ -22,7 +22,10 @@
 #include "../includes/parser.hpp"
 
 static bool is_valid_method(const std::string &method) {
-	return method == "GET" || method == "POST" || method == "DELETE";
+	// HEAD e opcional na config de proposito: nao declarado, ele nao e
+	// aceito (o tester oficial do 42 espera 405 numa location "methods GET")
+	return method == "GET" || method == "POST" || method == "DELETE"
+		|| method == "HEAD";
 }
 
 static bool is_redirect_code(int code) {
@@ -292,8 +295,8 @@ void Parser::parse_location_directive(Location &location,
 			error("diretiva 'methods' espera ao menos 1 metodo", line);
 		for (size_t i = 0; i < values.size(); i++) {
 			if (!is_valid_method(values[i]))
-				error("metodo invalido: '" + values[i] + "' (esperado GET, POST ou "
-							"DELETE)",
+				error("metodo invalido: '" + values[i] + "' (esperado GET, HEAD, "
+							"POST ou DELETE)",
 							line);
 		}
 		location.set_methods(values);
@@ -316,13 +319,24 @@ void Parser::parse_location_directive(Location &location,
 		if (values.size() != 1)
 			error("diretiva 'upload_store' espera 1 valor", line);
 		location.set_upload_store(values[0]);
-	} else if (name == "cgi") {
+	} else if (name == "client_max_body_size") {
+		// Limite por location: o teste oficial do 42 pede um /post_body com
+		// maxBody 100 enquanto as outras locations aceitam corpo enorme.
 		if (values.size() != 1)
-			error("diretiva 'cgi' espera 1 valor", line);
+			error("diretiva 'client_max_body_size' espera 1 valor", line);
+		location.set_max_body_size(to_size(values[0], line));
+	} else if (name == "cgi") {
+		// "cgi .py;"         -> executa o proprio arquivo (shebang)
+		// "cgi .bla cgi_test" -> chama o executavel passando o arquivo
+		if (values.size() < 1 || values.size() > 2)
+			error("diretiva 'cgi' espera extensao e, opcionalmente, um "
+						"executavel", line);
 		if (values[0].empty() || values[0][0] != '.')
 			error("extensao de cgi deve comecar com '.': '" + values[0] + "'",
 						line);
 		location.set_cgi_ext(values[0]);
+		if (values.size() == 2)
+			location.set_cgi_exec(values[1]);
 	} else if (name == "redirect") {
 		if (values.size() != 2)
 			error("diretiva 'redirect' espera 2 valores (codigo destino)", line);

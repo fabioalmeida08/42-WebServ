@@ -209,6 +209,47 @@ O `RequestParser` já deschunka e seta `content-length` → o CGI recebe o body 
 
 ---
 
+## Fase 5 — tester oficial da 42
+
+O `tester`/`cgi_tester` oficiais (binários Go do pacote da school) são o "mínimo
+antes de uma avaliação". Passaram a valer como régua, e a leitura deles achou
+cinco coisas que a régua de avaliação e o subject cobram e o projeto não fazia.
+
+- [x] **`root` remove o prefixo da location** — o subject é literal ("if URL
+      `/kapouet` is rooted to `/tmp/www`, URL `/kapouet/pouic/toto/pouet` will
+      search for `/tmp/www/pouic/toto/pouet`"). Estava concatenando `root + uri`
+      inteira. Virou `Location::resolve_path()` e as configs passaram a apontar
+      a raiz de cada location (`/files` → `www/files`).
+- [x] **`methods` literal: `HEAD` não herda de `GET`** — o tester manda `HEAD`
+      numa rota `methods GET` e espera `405`. O `HEAD` passou a precisar ser
+      declarado (`default.conf` declara).
+- [x] **`client_max_body_size` por location** — o tester exige `/post_body` com
+      limite 100 enquanto `/directory` aceita 100 MB. O parser do request aplica
+      o limite da location assim que a linha de request revela o path.
+- [x] **`cgi .bla <executavel>`** — o `.bla` do teste não é script, é só um
+      arquivo; quem roda é o `cgi_test`, com o arquivo como `argv[1]`.
+- [x] **Ambiente do CGI completo** — faltavam `REQUEST_URI`, `PATH_INFO` (que
+      tem que casar com o path do request) e todas as `HTTP_*` vindas dos
+      headers. O subject cobra ("The full request and arguments provided by the
+      client must be available to the CGI") e o tester manda um
+      `X-SECRET-HEADER-FOR-TEST` justamente pra conferir.
+- [x] **Saída do CGI vai pro disco** — `MAX_CGI_OUTPUT` era 10 MB em RAM e o
+      teste manda POST de 100 MB. Agora o corpo despeja num arquivo temporário
+      (`mkstemp`, `/var/tmp` antes de `/tmp`) e é mandado em blocos pelo mesmo
+      caminho dos arquivos estáticos. Sumiu também a cópia do corpo do request
+      (`client.cgi_body`), que dobrava a memória de um upload grande.
+- [x] **Fixtures**: `YoupiBanane/`, `tester.conf` e `www/cgi-bin/grande.py`
+      (12 MB) + asserções novas no smoke (header `HTTP_*`, corpo grande).
+
+Resultado: `./tester http://127.0.0.1:8080/` roda a lista inteira sem nenhum
+`FATAL` e sai com status `0`, também sob ASan+LSan. Smoke: 73/73.
+
+Limitação conhecida e documentada: o corpo do request continua em RAM (uma
+cópia só). São 20 conexões de 100 MB simultâneas no último teste do tester —
+2 GB de pico, medido. Streaming de upload pra disco seria a evolução natural.
+
+---
+
 ## Ordem de commits
 
 ```

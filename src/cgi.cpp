@@ -15,6 +15,7 @@
 #include "../includes/http_status.hpp"
 
 #include <cerrno>
+#include <cctype>
 #include <climits>
 #include <csignal>
 #include <cstdlib>
@@ -28,9 +29,13 @@
 
 extern char **environ;
 
-// Teto da saida do CGI: se estourar, mata o processo e responde 500 em vez
-// de deixar o script encher a memoria do servidor.
-static const size_t	MAX_CGI_OUTPUT = 10 * 1024 * 1024;
+// Teto do cabecalho do CGI: sem separador de fim de cabecalho a resposta
+// nao da pra interpretar, e um script que mandasse 100MB de "headers" que
+// nesse lixo a memoria.
+static const size_t	MAX_CGI_HEADER = 64 * 1024;
+// Teto do corpo. O corpo vai pra um arquivo temporario (e nao pra RAM),
+// mas o teto existe pra um script malicioso nao encher o disco.
+static const size_t	MAX_CGI_OUTPUT = 200 * 1024 * 1024;
 
 const int	Cgi::TIMEOUT;
 
@@ -40,6 +45,25 @@ static void	add_env(std::vector<std::string> &env, const std::string &key,
 									const std::string &value)
 {
 	env.push_back(key + "=" + value);
+}
+
+// Nome do header do request vira nome de variavel de ambiente: caixa alta
+// e hifen vira sublinhado (X-Test-Header -> X_TEST_HEADER), como a
+// especificacao do CGI manda.
+static std::string	header_env_name(const std::string &name)
+{
+	std::string	out = "HTTP_";
+
+	for (size_t i = 0; i < name.size(); i++)
+	{
+		char	c = name[i];
+
+		if (c == '-')
+			out += '_';
+		else
+			out += static_cast<char>(std::toupper(static_cast<unsigned char>(c)));
+	}
+	return out;
 }
 
 static bool	set_blocking_off(int fd)
@@ -74,8 +98,9 @@ static std::string	absolute_path(const std::string &path)
 	return std::string(resolved);
 }
 
-Cgi::Cgi() : _pid(-1), _in_fd(-1), _out_fd(-1), _eof(false), _reaped(false),
-						_exit_status(0)
+Cgi::Cgi() : _pid(-1), _in_fd(-1), _out_fd(-1), _tmp_fd(-1),
+						_header_done(false), _body_size(0), _eof(false),
+						_reaped(false), _exit_status(0)
 {
 }
 
@@ -83,11 +108,84 @@ Cgi::~Cgi()
 {
 	_close_in();
 	_close_out();
+	if (_tmp_fd >= 0)
+		close(_tmp_fd);
+	if (!_tmp_path.empty())
+		unlink(_tmp_path.c_str());
 	if (_pid > 0 && !_reaped)
 	{
 		kill(_pid, SIGKILL);
 		waitpid(_pid, NULL, 0);
 	}
+}
+
+// Arquivo temporario que recebe o corpo da resposta. mkstemp ja cria com
+// 0600 e um nome que nao colide com de outro cliente. Prefere /var/tmp,
+// que costuma ser disco de verdade: em /tmp tmpfs o "disco" seria a
+// memoria de novo.
+bool	Cgi::_open_tmp()
+{
+	// Prefere /var/tmp, que costuma ser disco de verdade: em /tmp tmpfs o
+	// "disco" seria a memoria de novo. mkstemp ja cria com 0600 e um nome
+	// que nao colide com o de outro cliente.
+	const char	*dirs[] = { "/var/tmp/", "/tmp/", "." };
+
+	for (size_t i = 0; i < sizeof(dirs) / sizeof(dirs[0]); i++)
+	{
+		char	template_path[64];
+		int		fd;
+
+		std::strcpy(template_path, dirs[i]);
+		std::strcat(template_path, "webserv-cgi-XXXXXX");
+		fd = mkstemp(template_path);
+		if (fd >= 0)
+		{
+			_tmp_fd = fd;
+			_tmp_path = template_path;
+			return true;
+		}
+	}
+	return false;
+}
+
+void	Cgi::_spill(const char *data, size_t size)
+{
+	size_t	offset = 0;
+
+	if (size == 0 || _body_size > MAX_CGI_OUTPUT)
+		return;
+	if (_tmp_fd < 0 && !_open_tmp())
+	{
+		_body_size = MAX_CGI_OUTPUT + 1;	// sem disco -> buffer_full() -> 500
+		return;
+	}
+	// Este fd nao passa pelo poll (arquivo de disco e isento), entao o
+	// loop aqui nao quebra a regra de uma I/O por cliente por poll
+	while (offset < size)
+	{
+		if (_body_size + (size - offset) > MAX_CGI_OUTPUT)
+		{
+			// Passou do teto: nao grava o resto, mas empurra _body_size
+			// pra cima do limite de proposito, pra buffer_full() acordar
+			// e a resposta virar 500 em vez de um 200 truncado
+			_body_size = MAX_CGI_OUTPUT + 1;
+			return;
+		}
+		ssize_t	written = write(_tmp_fd, data + offset, size - offset);
+
+		if (written <= 0)
+			return;
+		offset += static_cast<size_t>(written);
+		_body_size += static_cast<size_t>(written);
+	}
+}
+
+std::string	Cgi::take_tmp_path()
+{
+	std::string	path = _tmp_path;
+
+	_tmp_path.clear();
+	return path;
 }
 
 void	Cgi::_close_in()
@@ -124,11 +222,12 @@ bool	Cgi::is_cgi_path(const std::string &path, const Location &loc)
 	return path.compare(path.size() - ext.size(), ext.size(), ext) == 0;
 }
 
-// Caminho do script dentro da root: /cgi-bin/hello.py com root www vira
-// www/cgi-bin/hello.py
+// Caminho do script dentro da root: /directory/youpi.bla com location
+// /directory e root YoupiBanane vira YoupiBanane/youpi.bla (o prefixo da
+// location sai da URL, como o subject manda)
 std::string	Cgi::script_path_of(const std::string &path, const Location &loc)
 {
-	return loc.get_root() + path;
+	return Location::resolve_path(path, loc);
 }
 
 // Monta o ambiente do CGI. O subject faz questão disso: "Have a careful
@@ -153,7 +252,17 @@ void	Cgi::_build_env(const Request &req, const Server &srv,
 	add_env(env, "SCRIPT_NAME", req.get_path());
 	add_env(env, "SCRIPT_FILENAME", script_path_of(req.get_path(), loc));
 	add_env(env, "DOCUMENT_ROOT", loc.get_root());
-	add_env(env, "PATH_INFO", "");
+	// REQUEST_URI e obrigatorio: sem ele o cgi_tester oficial do 42 responde
+	// 500 "failed to parse REQUEST_URI into a URL".
+	std::string	uri = req.get_path();
+
+	if (!req.get_query().empty())
+		uri += "?" + req.get_query();
+	add_env(env, "REQUEST_URI", uri);
+	// PATH_INFO precisa ser o caminho do request (igual ao REQUEST_URI sem a
+	// query): com "" o cgi_tester oficial responde 500 "PATH_INFO not found",
+	// e com algo que nao case ele responde 500 "PATH_INFO incorrect".
+	add_env(env, "PATH_INFO", req.get_path());
 	add_env(env, "PATH_TRANSLATED", "");
 	add_env(env, "REMOTE_ADDR", remote_addr);
 	add_env(env, "REMOTE_HOST", remote_addr);
@@ -161,24 +270,74 @@ void	Cgi::_build_env(const Request &req, const Server &srv,
 		add_env(env, "CONTENT_TYPE", req.get_header("content-type"));
 	if (req.has_header("content-length"))
 		add_env(env, "CONTENT_LENGTH", req.get_header("content-length"));
+	// Todo o resto do request vira variavel HTTP_*, como a especificacao
+	// do CGI manda e como o subject cobra: "The full request and arguments
+	// provided by the client must be available to the CGI". O tester
+	// oficial do 42 manda um X-SECRET-HEADER-FOR-TEST justamente pra
+	// conferir que o header chega la dentro.
+	const std::map<std::string, std::string>	&headers = req.get_headers();
+
+	for (std::map<std::string, std::string>::const_iterator it = headers.begin();
+			it != headers.end(); ++it)
+	{
+		if (it->first == "content-type" || it->first == "content-length")
+			continue;
+		add_env(env, header_env_name(it->first), it->second);
+	}
 }
 
 bool	Cgi::start(const Request &req, const Server &srv, const Location &loc,
 								const std::string &script_path,
 								const std::string &remote_addr, std::string &err)
 {
+	// Zera a saida de uma eventual execucao anterior do mesmo objeto
+	_head.clear();
+	_tmp_path.clear();
+	_header_done = false;
+	_body_size = 0;
+	if (_tmp_fd >= 0)
+	{
+		close(_tmp_fd);
+		_tmp_fd = -1;
+	}
 	// Absoluto: o filho faz chdir e o execve recebe o caminho inteiro
 	const std::string	abs_script = absolute_path(script_path);
+	// cgi <ext> <executavel>: roda o executavel e passa o arquivo como
+	// argumento (o cgi_tester oficial do 42 so funciona assim, porque o
+	// conteudo do .bla nao e um script). Vazio = executa o proprio arquivo,
+	// o que depende do shebang.
+	const std::string	abs_exec = loc.get_cgi_exec().empty()
+		? abs_script : absolute_path(loc.get_cgi_exec());
 	struct stat			info;
 
 	if (stat(abs_script.c_str(), &info) != 0 || !S_ISREG(info.st_mode))
 	{
-		err = "script nao encontrado: " + script_path;
-		return false;
+		// Sem interpretador o script e o proprio executavel: precisa existir.
+		// Com interpretador, nao — o executavel e quem decide o que fazer
+		// com o arquivo. O tester oficial do 42 manda POST justamente num
+		// .bla que nao existe (/directory/youpla.bla) e espera que o
+		// cgi_test seja chamado do mesmo jeito.
+		if (loc.get_cgi_exec().empty())
+		{
+			err = "script nao encontrado: " + script_path;
+			return false;
+		}
 	}
-	if (access(abs_script.c_str(), X_OK) != 0)
+	else if (access(abs_script.c_str(),
+								 loc.get_cgi_exec().empty() ? X_OK : R_OK) != 0)
 	{
 		err = "script sem permissao de execucao: " + script_path;
+		return false;
+	}
+	if (abs_exec != abs_script
+		&& (stat(abs_exec.c_str(), &info) != 0 || !S_ISREG(info.st_mode)))
+	{
+		err = "interpretador de cgi nao encontrado: " + loc.get_cgi_exec();
+		return false;
+	}
+	if (access(abs_exec.c_str(), X_OK) != 0)
+	{
+		err = "interpretador de cgi sem permissao de execucao: " + abs_exec;
 		return false;
 	}
 
@@ -223,9 +382,16 @@ bool	Cgi::start(const Request &req, const Server &srv, const Location &loc,
 			envp.push_back(const_cast<char *>(env[i].c_str()));
 		envp.push_back(NULL);
 
-		char	*const	argv[] = { const_cast<char *>(abs_script.c_str()), NULL };
+		// Sem interpretador o execve ja recebe so o script (o kernel cuida
+		// do shebang); com interpretador o arquivo vira o 1o argumento.
+		std::vector<char *>	argv;
 
-		execve(abs_script.c_str(), argv, &envp[0]);
+		argv.push_back(const_cast<char *>(abs_exec.c_str()));
+		if (abs_exec != abs_script)
+			argv.push_back(const_cast<char *>(abs_script.c_str()));
+		argv.push_back(NULL);
+
+		execve(abs_exec.c_str(), &argv[0], &envp[0]);
 		std::cerr << "execve falhou: " << std::strerror(errno) << std::endl;
 		_exit(127);
 	}
@@ -273,12 +439,32 @@ void	Cgi::close_stdin()
 
 void	Cgi::collect(const char *data, size_t size)
 {
-	_out_buffer.append(data, size);
+	if (!_header_done)
+	{
+		_head.append(data, size);
+		size_t	sep = _head.find("\r\n\r\n");
+		size_t	sep_len = 4;
+
+		if (sep == std::string::npos)
+		{
+			sep = _head.find("\n\n");
+			sep_len = 2;
+		}
+		if (sep == std::string::npos)
+			return;
+		std::string	body = _head.substr(sep + sep_len);
+
+		_head.erase(sep + sep_len);		// fica so o cabecalho
+		_header_done = true;
+		_spill(body.data(), body.size());
+		return;
+	}
+	_spill(data, size);
 }
 
 bool	Cgi::buffer_full() const
 {
-	return _out_buffer.size() > MAX_CGI_OUTPUT;
+	return _head.size() > MAX_CGI_HEADER || _body_size > MAX_CGI_OUTPUT;
 }
 
 // Marca que a saida acabou. NAO fecha o out_fd aqui: finish_cgi() le o
@@ -356,19 +542,14 @@ int	Cgi::_cgi_status() const
 Response	Cgi::_parse_output(const Server &srv) const
 {
 	Response	res;
-	size_t		sep = _out_buffer.find("\r\n\r\n");
-	size_t		sep_len = 4;
+	size_t		sep = _head.find("\r\n\r\n");
 
 	if (sep == std::string::npos)
-	{
-		sep = _out_buffer.find("\n\n");
-		sep_len = 2;
-	}
+		sep = _head.find("\n\n");
 	if (sep == std::string::npos)
 		return Response::error(502, srv);
 
-	std::string	head = _out_buffer.substr(0, sep);
-	std::string	body = _out_buffer.substr(sep + sep_len);
+	std::string	head = _head.substr(0, sep);
 	int			status = 200;
 
 	std::istringstream	lines(head);
@@ -401,8 +582,10 @@ Response	Cgi::_parse_output(const Server &srv) const
 			res.set_header(name, value);
 	}
 	res.set_status(status);
-	if (Response::status_has_body(status))
-		res.set_body(body);
+	// O corpo ja esta no disco (ou vazio); marcar como arquivo deixa o
+	// WebServ mandar em blocos pelo mesmo caminho dos arquivos estaticos
+	if (Response::status_has_body(status) && _body_size > 0)
+		res.set_file(_tmp_path, _body_size);
 	return res;
 }
 

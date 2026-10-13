@@ -55,35 +55,73 @@ server {
     location / {
         root            www;
         index           index.html;
-        methods         GET;
+        methods         GET HEAD;
         autoindex       off;
     }
 
+    location /files {
+        root            www/files;
+        methods         GET HEAD;
+        autoindex       on;
+    }
+
     location /upload {
-        root            www;
-        methods         GET POST DELETE;
+        root            www/upload;
+        methods         GET HEAD POST DELETE;
         upload_store    www/upload;
         autoindex       on;
     }
 
     location /cgi-bin {
-        root            www;
-        methods         GET POST;
+        root            www/cgi-bin;
+        methods         GET HEAD POST;
         cgi             .py;
+    }
+
+    location /directory {
+        root            YoupiBanane;
+        index           youpi.bad_extension;
+        methods         GET POST;
+        cgi             .bla cgi_test;
     }
 }
 ```
 
 Directives: `listen`, `host`, `server_name`, `client_max_body_size`, `error_page`
 (server level) and `root`, `methods`, `index`, `autoindex`, `upload_store`, `cgi`,
-`redirect` (location level). Several `server` blocks can use different ports to serve
-different websites — `multiport.conf` demonstrates exactly that with `8081`
-(`www/`) and `8082` (`www2/`):
+`redirect`, `client_max_body_size` (location level). Several `server` blocks can
+use different ports to serve different websites — `multiport.conf` demonstrates
+exactly that with `8081` (`www/`) and `8082` (`www2/`):
 
 ```sh
 ./bin/webserv multiport.conf
 curl http://127.0.0.1:8081/    # the default site
 curl http://127.0.0.1:8082/    # a second, independent document root
+```
+
+Three details of the configuration are easy to get wrong:
+
+**`root` is the directory the location points at — the prefix is not repeated.**
+The subject spells it out: *"if URL `/kapouet` is rooted to `/tmp/www`, URL
+`/kapouet/pouic/toto/pouet` will search for `/tmp/www/pouic/toto/pouet`"*. So
+`location /kapouet { root /tmp/www; }` maps `/kapouet/pouic` to `/tmp/www/pouic`,
+never to `/tmp/www/kapouet/pouic`. Every `root` above is written from its own
+location's point of view, which is why `/files` reads `www/files` and not `www`.
+
+**`methods` is taken literally: `HEAD` is not implied by `GET`.** A location
+declared `methods GET` answers `405` to `HEAD`. That is what the official 42
+tester expects from a route that "must answer to GET request ONLY", so write
+`methods GET HEAD` when you want `curl -I` to work — `default.conf` does.
+
+**`client_max_body_size` can be declared per location**, which is what makes a
+tiny limit on one route and a huge one on another possible at the same time
+(`tester.conf` has `100` on `/post_body` and `100M` on the server).
+
+`cgi` takes the extension and, optionally, the executable to call:
+
+```nginx
+cgi .py;                  # run the file itself (needs a shebang and +x)
+cgi .bla cgi_test;        # run cgi_test with the file as argv[1]
 ```
 
 Two blocks sharing the same port is a configuration error: virtual hosting is
@@ -95,12 +133,34 @@ dead block. The same applies to a port that is already taken — a second
 `Ctrl-C` and `SIGTERM` shut the server down cleanly: every client, CGI pipe
 and listening socket is closed before `main` returns.
 
+### Official 42 tester
+
+`tester.conf` together with `YoupiBanane/` is exactly the setup the official
+evaluator binary asks for (`/` GET only, `*.bla` answered by the `cgi_test`
+executable, `/post_body` with `client_max_body_size 100`, and `/directory/`
+rooted at `YoupiBanane` with `youpi.bad_extension` as its default file):
+
+```sh
+cp /path/to/cgi_tester cgi_test   # from the 42 package; not committed (4 MB)
+./bin/webserv tester.conf
+/path/to/tester http://127.0.0.1:8080/
+```
+
+The binary walks the whole list and stops at the first problem with
+`FATAL ERROR ON LAST TEST: ...`; a clean run prints every test name and exits
+with status `0`. Its last check is 20 workers posting 100 MB each at the same
+time, which is the only moment the server's resident memory goes into the
+gigabytes — the request bodies of those 20 connections are held at once while
+they are being fed to the CGI.
+
 ### Layout
 
 ```
 bin/webserv      the executable
 default.conf     main configuration file
 multiport.conf   two ports with two different document roots
+tester.conf      configuration for the official 42 tester
+YoupiBanane/     the files that tester expects under /directory/
 www/             default document root
   errors/        custom error pages
   files/         autoindex demo
@@ -127,9 +187,10 @@ pass/fail table. It covers the status codes (`200/201/204/301/400/403/404/405/
 411/413/414/431/501/502/505`), `HEAD`, `Allow`, the `Date`/`Server` headers,
 path traversal (including `--path-as-is` and raw sockets), chunked bodies,
 upload + delete on disk, autoindex on and off, 64 KB-block file streaming,
-CGI (GET/POST/query/HEAD, crash, non-executable script, oversized output,
-script reading a file with a relative path — i.e. `chdir` into the script's
-directory) and `multiport.conf` on 8081/8082. Flags:
+CGI (GET/POST/query/HEAD, crash, non-executable script, request headers
+reaching the script as `HTTP_*`, a 12 MB output streamed from a temporary
+file, script reading a file with a relative path — i.e. `chdir` into the
+script's directory) and `multiport.conf` on 8081/8082. Flags:
 
 | flag | adds |
 | --- | --- |

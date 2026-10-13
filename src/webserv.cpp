@@ -362,6 +362,25 @@ void WebServ::handle_client_events(int client_fd, int index, short revents) {
 		close_client(client_fd);
 }
 
+// client_max_body_size pode ser sobrescrito dentro de uma location (o teste
+// oficial do 42 pede um /post_body com maxBody 100 enquanto o resto aceita
+// corpo enorme). A location, porem, so fica conhecida depois que a linha de
+// requisicao entrega o path — entao o limite e aplicado assim que o path
+// aparece, antes de o Content-Length ser interpretado.
+void WebServ::apply_body_limit(Client &client, int client_fd) {
+	const std::string &path = client.parser.get_request().get_path();
+
+	if (path.empty())
+		return;
+	const Server &server = get_client_server(client_fd);
+	const Location *loc = Location::match(path, server.get_locations());
+
+	if (loc != NULL && loc->get_max_body_size() > 0)
+		client.parser.set_max_body_size(loc->get_max_body_size());
+	else
+		client.parser.set_max_body_size(server.get_client_max_body());
+}
+
 bool WebServ::handle_client_read(int client_fd, int index) {
 	char buffer[4096];
 	ssize_t bytes_rcv = recv(client_fd, buffer, sizeof(buffer), 0);
@@ -381,7 +400,13 @@ bool WebServ::handle_client_read(int client_fd, int index) {
 	Client &client = _clients[client_fd];
 	client.last_activity = std::time(NULL);
 	try {
+		// O limite do server vale desde o accept, mas um location pode
+		// rebaixa-lo — e ele precisa estar valendo quando o Content-Length
+		// for lido. Da pra resolver assim que a linha de requisicao traz o
+		// path, por isso aplica antes e depois do feed.
+		apply_body_limit(client, client_fd);
 		client.parser.feed(buffer, static_cast<size_t>(bytes_rcv));
+		apply_body_limit(client, client_fd);
 		if (!client.parser.is_done())
 			return true;
 
@@ -405,7 +430,9 @@ bool WebServ::handle_client_read(int client_fd, int index) {
 				std::cout << response.get_status();
 			std::cout << std::endl;
 			if (response.get_is_cgi()) {
-				client.cgi_body = request.get_body();
+				// Nao copia o corpo: o parser ja guarda o Request dele e
+				// ele vive ate o cliente fechar. Copiar aqui dobraria a
+				// memoria ocupada por um upload de 100MB.
 				client.cgi_body_sent = 0;
 				client.state = CGI_RUNNING;
 				client.last_activity = std::time(NULL);
@@ -625,7 +652,8 @@ void WebServ::handle_cgi_event(int client_fd, int cgi_fd, short revents) {
 			// O script fechou o stdin sem ler; nao mata ele por isso
 			client.cgi.close_stdin();
 		} else {
-			client.cgi.feed_body(client.cgi_body, client.cgi_body_sent);
+			client.cgi.feed_body(client.parser.get_request().get_body(),
+													 client.cgi_body_sent);
 		}
 		if (client.cgi.in_fd() < 0) {
 			remove_poll_fd(cgi_fd);
@@ -644,8 +672,8 @@ void WebServ::handle_cgi_event(int client_fd, int cgi_fd, short revents) {
 			client.cgi.collect(buffer, static_cast<size_t>(bytes_rcv));
 			client.last_activity = std::time(NULL);
 			if (client.cgi.buffer_full()) {
-				std::cerr << "fd " << client_fd << ": saida do CGI passou de "
-									<< "10MB -> 500" << std::endl;
+				std::cerr << "fd " << client_fd << ": saida do CGI passou do "
+									<< "teto permitido -> 500" << std::endl;
 				finish_cgi(client_fd, client, 500);
 			}
 			return;
@@ -698,6 +726,31 @@ void WebServ::finish_cgi(int client_fd, Client &client, int forced_status) {
 	std::cout << "fd " << client_fd << ": CGI " << client.cgi.script_path()
 							<< " -> " << response.get_status() << std::endl;
 	client.response = response.build();
+	// O corpo do CGI saiu da memoria e foi despejado num arquivo
+	// temporario enquanto o script rodava. Abre, desvincula o nome (o fd
+	// segura o conteudo, entao o espaco e liberado no close) e manda em
+	// blocos pelo mesmo caminho dos arquivos estaticos: uma resposta de
+	// 100MB nunca fica inteira na RAM.
+	std::string tmp = client.cgi.take_tmp_path();
+	int fd = -1;
+
+	if (response.has_file() && !response.get_no_body() && !tmp.empty())
+		fd = open(tmp.c_str(), O_RDONLY);
+	if (!tmp.empty())
+		unlink(tmp.c_str());
+	if (response.has_file() && !response.get_no_body()) {
+		if (fd < 0 || !set_non_blocking(fd)) {
+			if (fd >= 0)
+				close(fd);
+			client.response = Response::error(500, server).build();
+		} else {
+			client.file_fd = fd;
+			client.file_size = response.get_file_size();
+			client.file_sent = 0;
+			client.file_buffer.clear();
+			client.file_buffer_pos = 0;
+		}
+	}
 	client.sent = 0;
 	client.last_activity = std::time(NULL);
 	client.state = WRITING_RESPONSE;
