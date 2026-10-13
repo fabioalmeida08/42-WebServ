@@ -240,6 +240,8 @@ cinco coisas que a régua de avaliação e o subject cobram e o projeto não faz
       (`client.cgi_body`), que dobrava a memória de um upload grande.
 - [x] **Fixtures**: `YoupiBanane/`, `tester.conf` e `www/cgi-bin/grande.py`
       (12 MB) + asserções novas no smoke (header `HTTP_*`, corpo grande).
+      `YoupiBanane/` e `tester.conf` depois saíram do git (não são nossos) —
+      continuam na máquina local, cobertos pelo `.gitignore`.
 
 Resultado: `./tester http://127.0.0.1:8080/` roda a lista inteira sem nenhum
 `FATAL` e sai com status `0`, também sob ASan+LSan. Smoke: 73/73.

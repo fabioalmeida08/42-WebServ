@@ -78,11 +78,9 @@ server {
         cgi             .py;
     }
 
-    location /directory {
-        root            YoupiBanane;
-        index           youpi.bad_extension;
-        methods         GET POST;
-        cgi             .bla cgi_test;
+    location /kapouet {
+        root            /tmp/www;
+        methods         GET HEAD;
     }
 }
 ```
@@ -115,7 +113,7 @@ tester expects from a route that "must answer to GET request ONLY", so write
 
 **`client_max_body_size` can be declared per location**, which is what makes a
 tiny limit on one route and a huge one on another possible at the same time
-(`tester.conf` has `100` on `/post_body` and `100M` on the server).
+(the official tester needs `100` on `/post_body` and `100M` on the server).
 
 `cgi` takes the extension and, optionally, the executable to call:
 
@@ -135,10 +133,23 @@ and listening socket is closed before `main` returns.
 
 ### Official 42 tester
 
-`tester.conf` together with `YoupiBanane/` is exactly the setup the official
-evaluator binary asks for (`/` GET only, `*.bla` answered by the `cgi_test`
-executable, `/post_body` with `client_max_body_size 100`, and `/directory/`
-rooted at `YoupiBanane` with `youpi.bad_extension` as its default file):
+The official package ships its own binary, its CGI executable and the files it
+serves, so none of that lives in this repository (`tester.conf`, `YoupiBanane/`
+and `cgi_test` are local-only and gitignored). The setup the evaluator asks for
+is `default.conf` with four changes:
+
+```nginx
+location /          { ... methods GET; }                    # GET only, no HEAD
+location /post_body { ... methods POST; client_max_body_size 100; }
+location /directory {
+    root    YoupiBanane;      # stripped prefix, as in the subject
+    index   youpi.bad_extension;
+    methods GET POST;
+    cgi     .bla cgi_test;    # cgi_test = the 42 cgi_tester binary
+}
+```
+
+Then, from the repository root:
 
 ```sh
 cp /path/to/cgi_tester cgi_test   # from the 42 package; not committed (4 MB)
@@ -159,8 +170,6 @@ they are being fed to the CGI.
 bin/webserv      the executable
 default.conf     main configuration file
 multiport.conf   two ports with two different document roots
-tester.conf      configuration for the official 42 tester
-YoupiBanane/     the files that tester expects under /directory/
 www/             default document root
   errors/        custom error pages
   files/         autoindex demo

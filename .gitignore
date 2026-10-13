@@ -9,5 +9,7 @@ www2/upload/*
 !www2/upload/.gitkeep
 __pycache__/
 *.pyc
-# Binario do cgi_tester oficial da 42 (nao e nosso; copie-o pra ca)
+# Coisas do tester oficial da 42 — nao sao nossas, ficam so na maquina local
 cgi_test
+tester.conf
+YoupiBanane/
