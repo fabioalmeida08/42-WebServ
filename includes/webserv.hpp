@@ -83,6 +83,12 @@ class WebServ {
 	// fd do pipe do CGI -> fd do cliente dono (o pipe nao e socket, mas
 	// tambem precisa passar pelo poll)
 	std::map<int, int> _cgi_fds;
+	// Versao da ultima entrada criada para cada fd. O snapshot de fds
+	// prontos guarda a versao; se um handler fechar o fd e o accept()
+	// reutilizar o mesmo numero no mesmo tick, a versao nao bate e o
+	// evento velho e descartado em vez de ser entregue ao cliente novo.
+	std::map<int, unsigned long> _fd_epoch;
+	unsigned long _fd_epoch_counter;
 
 	int _reuse_addr;
 	int _backlog;
@@ -93,6 +99,8 @@ class WebServ {
 	// Um request incompleto nao pode ficar preso para sempre (subject:
 	// "A request to your server should never hang indefinitely")
 	static const int REQUEST_TIMEOUT = 60;
+	// Frequencia com que o poll acorda pra conferir os prazos acima
+	static const int POLL_TICK_MS = 1000;
 
 	void handle_new_connection(int listen_index);
 	void handle_client_events(int client_fd, int index, short revents);
@@ -108,6 +116,7 @@ class WebServ {
 	void remove_poll_fd(int fd);
 	void check_timeouts();
 	void close_client(int client_fd);
+	int poll_index(int fd) const;
 	const Server &get_client_server(int client_fd);
 	int find_listen_index(int fd) const;
 	bool set_non_blocking(int fd);

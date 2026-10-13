@@ -31,7 +31,8 @@ extern char **environ;
 // Teto da saida do CGI: se estourar, mata o processo e responde 500 em vez
 // de deixar o script encher a memoria do servidor.
 static const size_t	MAX_CGI_OUTPUT = 10 * 1024 * 1024;
-static const int		CGI_TIMEOUT = 30;
+
+const int	Cgi::TIMEOUT;
 
 // O subject exige C++98 e so permite um conjunto de funções; setenv nao
 // esta na lista, entao montamos o array char** na mao.
@@ -273,10 +274,14 @@ bool	Cgi::buffer_full() const
 	return _out_buffer.size() > MAX_CGI_OUTPUT;
 }
 
+// Marca que a saida acabou. NAO fecha o out_fd aqui: finish_cgi() le o
+// fd antes de limpar o _cgi_fds/_poll_fds, e zerar antes transformava a
+// limpeza em erase(-1) — a entrada antiga ficava eterna e, quando o
+// numero do fd fosse reutilizado por um arquivo de disco, o poll mandava
+// a gente ler 4096 bytes do meio do arquivo de outro cliente.
 void	Cgi::mark_eof()
 {
 	_eof = true;
-	_close_out();
 }
 
 void	Cgi::try_reap()

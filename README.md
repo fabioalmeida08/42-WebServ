@@ -77,27 +77,70 @@ server {
 Directives: `listen`, `host`, `server_name`, `client_max_body_size`, `error_page`
 (server level) and `root`, `methods`, `index`, `autoindex`, `upload_store`, `cgi`,
 `redirect` (location level). Several `server` blocks can use different ports to serve
-different websites.
+different websites — `multiport.conf` demonstrates exactly that with `8081`
+(`www/`) and `8082` (`www2/`):
+
+```sh
+./bin/webserv multiport.conf
+curl http://127.0.0.1:8081/    # the default site
+curl http://127.0.0.1:8082/    # a second, independent document root
+```
+
+If two blocks share the same port the second one is unreachable (there is no
+virtual hosting), and the server prints a warning at startup instead of hiding it.
 
 ### Layout
 
 ```
 bin/webserv      the executable
 default.conf     main configuration file
+multiport.conf   two ports with two different document roots
 www/             default document root
   errors/        custom error pages
   files/         autoindex demo
   upload/        upload target
   cgi-bin/       python CGI scripts
+  private/       directory with autoindex off (no index.html)
+www2/            second document root, used by multiport.conf
 tests/           smoke and stress tests (python3)
 ```
 
 ### Tests
 
+The tests start and stop the server themselves with `--spawn`; without it they
+expect one to already be listening on `127.0.0.1:8080`.
+
 ```sh
-python3 tests/smoke.py     # feature by feature, expects ./bin/webserv running
-python3 tests/stress.py    # concurrency and idle connections
+python3 tests/smoke.py --spawn --slow --multiport
+python3 tests/stress.py --spawn
+python3 tests/stress.py --spawn --concurrency 500 --cgi
 ```
+
+`smoke.py` walks the feature list one assertion at a time and prints a per-case
+pass/fail table. It covers the status codes (`200/201/204/301/400/403/404/405/
+411/413/414/431/501/502/505`), `HEAD`, `Allow`, the `Date`/`Server` headers,
+path traversal (including `--path-as-is` and raw sockets), chunked bodies,
+upload + delete on disk, autoindex on and off, 64 KB-block file streaming,
+CGI (GET/POST/query/HEAD, crash, non-executable script, oversized output) and
+`multiport.conf` on 8081/8082. Flags:
+
+| flag | adds |
+| --- | --- |
+| `--spawn` | starts `./bin/webserv` and stops it at the end |
+| `--slow` | the 30 s CGI timeout test (a 504 that really takes 30 s) |
+| `--multiport` | the second server block of `multiport.conf` |
+
+`stress.py` opens idle connections that never send anything, then fires
+`--concurrency` requests in parallel and checks that every one answered `200`,
+that the server still responds afterwards, that file descriptors returned to the
+baseline (no leak) and that the process memory did not grow.
+
+| flag | default | meaning |
+| --- | --- | --- |
+| `--concurrency` | 500 | simultaneous requests |
+| `--idle` | 100 | connections held open without sending anything |
+| `--cgi` | off | half of the requests go through CGI (`fork` per request) |
+| `--timeout` | 60 | client timeout; raise it above 61 to observe the server's `408` on the idle connections |
 
 ## Resources
 
