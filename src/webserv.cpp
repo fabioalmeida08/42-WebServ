@@ -22,7 +22,21 @@
 #include <bits/stdc++.h>
 #include <csignal>
 
-WebServ::WebServ() : _reuse_addr(1), _backlog(128) {}
+namespace {
+// Copia do que o poll marcou, antes de tratar qualquer evento. Guarda a
+// versao da entrada na hora da copia: os handlers fecham fds dentro do
+// loop e o accept() pode reutilizar o mesmo numero no mesmo tick.
+struct ReadyFd {
+	int fd;
+	short revents;
+	unsigned long epoch;
+};
+}  // namespace
+
+// 511 e o tippico backlog de producao (nginx usa o mesmo). Com 128 e
+// centenas de conexoes simultaneas o kernel devolve RST pra quem entra
+// depois que a fila enche.
+WebServ::WebServ() : _fd_epoch_counter(0), _reuse_addr(1), _backlog(511) {}
 
 void WebServ::loadConfig(const std::vector<Server> &servers) {
 	_servers = servers;
@@ -40,8 +54,19 @@ bool WebServ::setup_listen_sockets() {
 				break;
 			}
 		}
-		if (already_seen)
+		if (already_seen) {
+			// Vhost esta fora do escopo (o subject so pede um server por
+			// porta); o primeiro bloco responde por todas, entao este
+			// aqui nunca vai ser alcançavel — deixa explicito no startup
+			const std::vector<std::string> &names = _servers[i].get_names();
+			std::cerr << "warning: porta " << port << " ja esta em uso por "
+								<< "outro bloco server; o server_name \""
+								<< (names.empty() ? std::string("(sem nome)")
+								                 : names[0])
+								<< "\" fica inalcançavel (vhost fora de escopo)"
+								<< std::endl;
 			continue;
+		}
 		seen_ports.push_back(port);
 
 		ListenSocket listen_socket;
@@ -152,7 +177,11 @@ bool WebServ::run() {
 	}
 
 	while (1) {
-		int ready = poll(_poll_fds.data(), _poll_fds.size(), REQUEST_TIMEOUT * 1000);
+		// O poll precisa acordar mais vezes do que o menor prazo: se ele
+		// esperasse REQUEST_TIMEOUT (60s) o check_timeouts so rodaria a
+		// cada 60s e o timeout de CGI (30s) dispararia na metade da hora.
+		// 1s de tick mantem todos os prazos com precisao de 1 segundo.
+		int ready = poll(_poll_fds.data(), _poll_fds.size(), POLL_TICK_MS);
 
 		if (ready < 0) {
 			perror("poll");
@@ -161,69 +190,109 @@ bool WebServ::run() {
 
 		check_timeouts();
 
-		// Itera de tras pra frente porque close_client apaga do vetor
-		for (int i = static_cast<int>(_poll_fds.size()) - 1; i >= 0; i--) {
-			struct pollfd &pfd = _poll_fds[i];
+		// Copia os fds prontos ANTES de tratar qualquer um: os handlers
+		// apagam entradas do _poll_fds (finish_cgi tira os dois pipes do
+		// CGI, close_client tira pipes + socket) e com a iteracao por
+		// indice o i passava a apontar pra outra entrada — ou fora da
+		// faixa, o que deixava um cliente em READING escutando so POLLOUT,
+		// nunca recebia POLLIN e morria de 408 sem resposta.
+		std::vector<ReadyFd> ready_fds;
+		ready_fds.reserve(_poll_fds.size());
+		for (size_t k = 0; k < _poll_fds.size(); k++) {
+			if (_poll_fds[k].revents == 0)
+				continue;
+			ReadyFd item;
+			item.fd = _poll_fds[k].fd;
+			item.revents = _poll_fds[k].revents;
+			item.epoch = _fd_epoch[item.fd];
+			ready_fds.push_back(item);
+		}
 
-			if (pfd.revents == 0)
+		for (size_t k = 0; k < ready_fds.size(); k++) {
+			int fd = ready_fds[k].fd;
+			short revents = ready_fds[k].revents;
+
+			// O fd pode ter sido fechado por um handler anterior — ou
+			// fechado e reutilizado, que e pior: sem conferir a versao o
+			// evento velho seria entregue ao cliente novo
+			if (_fd_epoch[fd] != ready_fds[k].epoch)
+				continue;
+			int index = poll_index(fd);
+			if (index < 0)
 				continue;
 
-			if (find_listen_index(pfd.fd) >= 0) {
-				handle_new_connection(find_listen_index(pfd.fd));
+			if (find_listen_index(fd) >= 0) {
+				handle_new_connection(find_listen_index(fd));
 				continue;
 			}
 			// Pipe do CGI: o dono e um cliente, mas o fd nao e socket
-			std::map<int, int>::iterator cgi_it = _cgi_fds.find(pfd.fd);
+			std::map<int, int>::iterator cgi_it = _cgi_fds.find(fd);
 			if (cgi_it != _cgi_fds.end()) {
-				handle_cgi_event(cgi_it->second, pfd.fd, pfd.revents);
+				handle_cgi_event(cgi_it->second, fd, revents);
 				continue;
 			}
-			if (_clients.find(pfd.fd) == _clients.end())
+			if (_clients.find(fd) == _clients.end())
 				continue;
-			// POLLIN e POLLOUT podem chegar juntos; o indice pode mudar
-			// dentro do handler, por isso o revents e capturado antes
-			handle_client_events(pfd.fd, i, pfd.revents);
+			// POLLIN e POLLOUT podem chegar juntos; o indice e recalcu-
+			// lado na hora porque os handlers mexem no vetor
+			handle_client_events(fd, index, revents);
 		}
 	}
 	return true;
 }
 
-void WebServ::handle_new_connection(int listen_index) {
-	struct sockaddr_storage client_addr;
-	socklen_t client_addr_size = sizeof(client_addr);
-
-	int client_fd =
-			accept(_listen_sockets[listen_index].fd, (struct sockaddr *)&client_addr,
-						 &client_addr_size);
-	if (client_fd < 0) {
-		perror("accept");
-		return;
+int WebServ::poll_index(int fd) const {
+	for (size_t k = 0; k < _poll_fds.size(); k++) {
+		if (_poll_fds[k].fd == fd)
+			return static_cast<int>(k);
 	}
-
-	if (!set_non_blocking(client_fd)) {
-		close(client_fd);
-		return;
-	}
-
-	_client_listen[client_fd] = listen_index;
-	_clients[client_fd].parser.set_max_body_size(
-			get_client_server(client_fd).get_client_max_body());
-	{
-		char addr[INET_ADDRSTRLEN];
-		struct sockaddr_in *sin = reinterpret_cast<struct sockaddr_in *>(&client_addr);
-		if (inet_ntop(AF_INET, &sin->sin_addr, addr, sizeof(addr)) != NULL)
-			_clients[client_fd].remote_addr = addr;
-	}
-	add_poll_fd(client_fd, POLLIN);
-
-	std::cout << "Cliente conectado, fd " << client_fd << " na porta "
-						<< _listen_sockets[listen_index].port << std::endl;
+	return -1;
 }
 
-// Dispara o que o poll marcou para um cliente. Retorna false se o cliente
-// foi fechado pelo handler (e o vetor de fds ja foi alterado nesse caso).
+void WebServ::handle_new_connection(int listen_index) {
+	// Drena a fila de aceitação inteira: aceitando um por volta, 200
+	// conexões ao mesmo tempo estouram a accept queue e o kernel responde
+	// RST pro cliente que ja completou o handshake. O limite de 64 por
+	// evento mantém o loop finito sem precisar checar errno.
+	for (int accepted = 0; accepted < 64; accepted++) {
+		struct sockaddr_storage client_addr;
+		socklen_t client_addr_size = sizeof(client_addr);
+
+		int client_fd =
+				accept(_listen_sockets[listen_index].fd,
+				       (struct sockaddr *)&client_addr, &client_addr_size);
+		if (client_fd < 0)
+			break;
+
+		if (!set_non_blocking(client_fd)) {
+			close(client_fd);
+			continue;
+		}
+
+		_client_listen[client_fd] = listen_index;
+		_clients[client_fd].parser.set_max_body_size(
+				get_client_server(client_fd).get_client_max_body());
+		{
+			char addr[INET_ADDRSTRLEN];
+			struct sockaddr_in *sin =
+					reinterpret_cast<struct sockaddr_in *>(&client_addr);
+			if (inet_ntop(AF_INET, &sin->sin_addr, addr, sizeof(addr)) != NULL)
+				_clients[client_fd].remote_addr = addr;
+		}
+		add_poll_fd(client_fd, POLLIN);
+
+		std::cout << "Cliente conectado, fd " << client_fd << " na porta "
+							<< _listen_sockets[listen_index].port << std::endl;
+	}
+}
+
+// Dispara o que o poll marcou para um cliente.
+//
+// Ordem importa: drena o POLLIN antes de olhar HUP/ERR, porque quando o
+// peer fecha a conexao o request ja pode ter chegado junto — fechar sem
+// ler manda RST e o cliente perde a resposta.
 void WebServ::handle_client_events(int client_fd, int index, short revents) {
-	if (revents & (POLLHUP | POLLERR | POLLNVAL)) {
+	if (revents & POLLNVAL) {
 		close_client(client_fd);
 		return;
 	}
@@ -231,17 +300,36 @@ void WebServ::handle_client_events(int client_fd, int index, short revents) {
 		return;
 	if (_clients.find(client_fd) == _clients.end())
 		return;
-	if (revents & POLLOUT)
-		handle_client_write(client_fd, index);
+
+	ClientState state = _clients[client_fd].state;
+	// So escreve se tem resposta pendente: um POLLOUT esporadico num
+	// cliente que ainda esta lendo o request nao pode derrubar ele
+	if ((revents & POLLOUT)
+			&& (state == WRITING_RESPONSE || state == SENDING_FILE)) {
+		int out_index = poll_index(client_fd);
+		if (out_index >= 0)
+			handle_client_write(client_fd, out_index);
+	}
+	if (_clients.find(client_fd) == _clients.end())
+		return;
+	if (revents & (POLLHUP | POLLERR))
+		close_client(client_fd);
 }
 
 bool WebServ::handle_client_read(int client_fd, int index) {
 	char buffer[4096];
 	ssize_t bytes_rcv = recv(client_fd, buffer, sizeof(buffer), 0);
 
-	if (bytes_rcv <= 0) {
+	if (bytes_rcv == 0) {
+		// EOF: o peer fechou de verdade
 		close_client(client_fd);
 		return false;
+	}
+	if (bytes_rcv < 0) {
+		// -1 sem POLLHUP: nao da pra checar errno depois de recv, entao
+		// nao da pra distinguir EAGAIN de erro real. Espera o proximo
+		// POLLIN; erro de verdade reaparece como POLLERR/POLLHUP.
+		return true;
 	}
 
 	Client &client = _clients[client_fd];
@@ -399,22 +487,37 @@ void WebServ::close_file(Client &client) {
 void WebServ::check_timeouts() {
 	time_t now = std::time(NULL);
 
-	for (int i = static_cast<int>(_poll_fds.size()) - 1; i >= 0; i--) {
-		std::map<int, Client>::iterator it = _clients.find(_poll_fds[i].fd);
+	// Mesmo motivo do loop principal: os handlers apagam mais de uma
+	// entrada por chamada, entao trabalha com uma copia dos fds
+	std::vector<int> fds;
+	fds.reserve(_poll_fds.size());
+	for (size_t k = 0; k < _poll_fds.size(); k++) {
+		if (_clients.find(_poll_fds[k].fd) != _clients.end())
+			fds.push_back(_poll_fds[k].fd);
+	}
+
+	for (size_t k = 0; k < fds.size(); k++) {
+		int client_fd = fds[k];
+		std::map<int, Client>::iterator it = _clients.find(client_fd);
 		if (it == _clients.end())
 			continue;
-		if (now - it->second.last_activity < REQUEST_TIMEOUT)
+
+		Client &client = it->second;
+		// Cada estado tem o seu proprio prazo: o CGI morre antes (30s)
+		// porque um script travado nao pode prender o cliente pra sempre
+		int limit = (client.state == CGI_RUNNING) ? Cgi::TIMEOUT
+		                                          : REQUEST_TIMEOUT;
+		if (now - client.last_activity < limit)
 			continue;
 
-		int client_fd = _poll_fds[i].fd;
-		if (it->second.state == CGI_RUNNING) {
+		if (client.state == CGI_RUNNING) {
 			std::cout << "fd " << client_fd << ": CGI sem resposta após "
-								<< REQUEST_TIMEOUT << "s -> 504" << std::endl;
+								<< Cgi::TIMEOUT << "s -> 504" << std::endl;
 			// Mata o script e responde 504 no lugar da saida dele
-			finish_cgi(client_fd, it->second, 504);
+			finish_cgi(client_fd, client, 504);
 			continue;
 		}
-		if (it->second.state != READING) {
+		if (client.state != READING) {
 			std::cout << "fd " << client_fd << ": sem progresso no envio após "
 								<< REQUEST_TIMEOUT << "s -> fechando" << std::endl;
 			close_client(client_fd);
@@ -426,11 +529,13 @@ void WebServ::check_timeouts() {
 		std::cout << "fd " << client_fd << ": timeout após "
 							<< REQUEST_TIMEOUT << "s -> 408" << std::endl;
 		timeout.set_header("Connection", "close");
-		it->second.response = timeout.build();
-		it->second.sent = 0;
-		it->second.last_activity = now;
-		it->second.state = WRITING_RESPONSE;
-		_poll_fds[i].events = POLLOUT;
+		client.response = timeout.build();
+		client.sent = 0;
+		client.last_activity = now;
+		client.state = WRITING_RESPONSE;
+		int index = poll_index(client_fd);
+		if (index >= 0)
+			_poll_fds[index].events = POLLOUT;
 	}
 }
 
@@ -444,6 +549,15 @@ void WebServ::handle_cgi_event(int client_fd, int cgi_fd, short revents) {
 		return;
 	}
 	Client &client = it->second;
+
+	// Guarda contra fd reutilizado: se este fd nao e mais o pipe deste
+	// cliente, ele foi fechado e o numero foi dado pra outro objeto (um
+	// arquivo de disco, por exemplo). Limpa e sai sem tocar no fd.
+	if (cgi_fd != client.cgi.in_fd() && cgi_fd != client.cgi.out_fd()) {
+		remove_poll_fd(cgi_fd);
+		_cgi_fds.erase(cgi_fd);
+		return;
+	}
 
 	if (cgi_fd == client.cgi.in_fd()) {
 		// O lado da escrita: manda o corpo e fecha o pipe (o CGI precisa
@@ -549,6 +663,9 @@ void WebServ::remove_poll_fd(int fd) {
 	for (size_t i = 0; i < _poll_fds.size(); i++) {
 		if (_poll_fds[i].fd == fd) {
 			_poll_fds.erase(_poll_fds.begin() + i);
+			// Invalida a versao: um snapshot ja tirado deste tick nao
+			// pode ser entregue ao objeto novo que pegar este numero
+			_fd_epoch[fd] = ++_fd_epoch_counter;
 			return;
 		}
 	}
@@ -612,6 +729,10 @@ void WebServ::add_poll_fd(int fd, short events) {
 	pollfd.events = events;
 	pollfd.revents = 0;
 	_poll_fds.push_back(pollfd);
+	// Toda entrada nova ganha uma versao propria. O snapshot do loop
+	// principal guarda essa versao e descarta o evento se o numero de fd
+	// foi reutilizado por outro objeto no meio do tick.
+	_fd_epoch[fd] = ++_fd_epoch_counter;
 }
 
 WebServ::~WebServ() { cleanup_server(); }

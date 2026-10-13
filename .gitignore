@@ -5,3 +5,5 @@ en.subject.pdf
 .vscode
 www/upload/*
 !www/upload/.gitkeep
+www2/upload/*
+!www2/upload/.gitkeep

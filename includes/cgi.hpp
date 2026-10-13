@@ -30,6 +30,12 @@
 // isenção que os arquivos de disco tem.
 class Cgi
 {
+	public:
+		// Quanto tempo o script pode levar antes de virar 504. e menor
+		// que o timeout do request: um CGI travado nao pode prender o
+		// cliente pra sempre (subject: "never hang indefinitely")
+		static const int TIMEOUT = 30;
+
 	private:
 		pid_t			_pid;
 		int				_in_fd;
