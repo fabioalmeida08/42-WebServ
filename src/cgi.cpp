@@ -247,16 +247,23 @@ bool	Cgi::feed_body(const std::string &body, size_t &sent)
 {
 	if (_in_fd < 0)
 		return true;
-	while (sent < body.size())
+	// Uma unica escrita por poll (regua: "only one read or one write per
+	// client per select()"). Um corpo grande alimenta o CGI em varios
+	// eventos de POLLOUT no pipe, um bloco por vez, e so fecha o stdin
+	// quando o ultimo byte tiver sido aceito.
+	if (sent >= body.size())
 	{
-		ssize_t	written = write(_in_fd, body.data() + sent, body.size() - sent);
-
-		if (written <= 0)
-			return false;
-		sent += static_cast<size_t>(written);
+		_close_in();
+		return true;
 	}
-	_close_in();
-	return true;
+	ssize_t	written = write(_in_fd, body.data() + sent, body.size() - sent);
+
+	if (written <= 0)
+		return false;			// pipe cheio: proximo POLLOUT
+	sent += static_cast<size_t>(written);
+	if (sent >= body.size())
+		_close_in();
+	return sent >= body.size();
 }
 
 void	Cgi::close_stdin()

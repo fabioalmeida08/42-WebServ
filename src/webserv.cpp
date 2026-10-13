@@ -31,6 +31,15 @@ struct ReadyFd {
 	short revents;
 	unsigned long epoch;
 };
+
+// Pedir para sair e so sinalizar; fazer close()/exit() dentro do handler
+// seria async-signal-unsafe. O flag e checado no fim de cada volta do
+// poll (tick de 1s, ou EINTR na hora), quando e seguro limpar tudo.
+volatile sig_atomic_t g_shutdown = 0;
+
+void handle_shutdown_signal(int) {
+	g_shutdown = 1;
+}
 }  // namespace
 
 // 511 e o tippico backlog de producao (nginx usa o mesmo). Com 128 e
@@ -55,17 +64,24 @@ bool WebServ::setup_listen_sockets() {
 			}
 		}
 		if (already_seen) {
-			// Vhost esta fora do escopo (o subject so pede um server por
-			// porta); o primeiro bloco responde por todas, entao este
-			// aqui nunca vai ser alcançavel — deixa explicito no startup
+			// Regua de avaliacao: "in the configuration, try to setup the
+			// same port multiple times. It should not work."
+			//
+			// Vhost esta fora do escopo (o subject diz literalmente que a
+			// feature e out of scope), entao nao existe como servir dois
+			// blocos na mesma porta. Em vez de subir deixando um bloco morto
+			// e mandar um warning, recusa a configuracao inteira — e o boot
+			// falha, do mesmo jeito que o segundo processo numa porta ja
+			// ocupada tambem falha.
 			const std::vector<std::string> &names = _servers[i].get_names();
-			std::cerr << "warning: porta " << port << " ja esta em uso por "
-								<< "outro bloco server; o server_name \""
+			std::cerr << "erro: a porta " << port << " e declarada por mais "
+								<< "de um bloco server; vhost esta fora do escopo, "
+								<< "entao esta configuracao nao funciona (bloco \""
 								<< (names.empty() ? std::string("(sem nome)")
 								                 : names[0])
-								<< "\" fica inalcançavel (vhost fora de escopo)"
-								<< std::endl;
-			continue;
+								<< "\")" << std::endl;
+			cleanup_socket();
+			return false;
 		}
 		seen_ports.push_back(port);
 
@@ -120,9 +136,20 @@ bool WebServ::setup_listen_sockets() {
 		freeaddrinfo(addr);
 
 		if (listen_socket.fd < 0) {
-			std::cerr << "warning: nao foi possivel bind na porta " << port
-								<< " — grupo ignorado" << std::endl;
-			continue;
+			// Regua de avaliacao: "in the configuration, try to setup the
+			// same port multiple times. It should not work" e "launch
+			// multiple servers at the same time ... with common ports. Does
+			// it work? If it does, ask why the server should work if one of
+			// the configurations isn't functional".
+			//
+			// Abortar o boot aqui cobre os dois casos: a porta repetida no
+			// proprio config nao sobe, e o segundo processo que tenta usar
+			// a mesma porta de um primeiro morre com erro em vez de fingir
+			// que esta escutando algo.
+			std::cerr << "erro: nao foi possivel bind na porta " << port
+								<< " (porta em uso ou sem permissao)" << std::endl;
+			cleanup_socket();
+			return false;
 		}
 
 		_listen_sockets.push_back(listen_socket);
@@ -169,6 +196,11 @@ bool WebServ::run() {
 		return false;
 
 	signal(SIGPIPE, SIG_IGN);
+	// Ctrl-C / kill saem do loop e fecham tudo em vez de morrer no meio
+	// de um send(): sem isso sobrariam sockets abertos e filhos de CGI
+	// orfaos depois que o servidor sai.
+	signal(SIGINT, handle_shutdown_signal);
+	signal(SIGTERM, handle_shutdown_signal);
 
 	for (size_t i = 0; i < _listen_sockets.size(); i++) {
 		if (!set_non_blocking(_listen_sockets[i].fd))
@@ -176,7 +208,7 @@ bool WebServ::run() {
 		add_poll_fd(_listen_sockets[i].fd, POLLIN);
 	}
 
-	while (1) {
+	while (g_shutdown == 0) {
 		// O poll precisa acordar mais vezes do que o menor prazo: se ele
 		// esperasse REQUEST_TIMEOUT (60s) o check_timeouts so rodaria a
 		// cada 60s e o timeout de CGI (30s) dispararia na metade da hora.
@@ -184,7 +216,11 @@ bool WebServ::run() {
 		int ready = poll(_poll_fds.data(), _poll_fds.size(), POLL_TICK_MS);
 
 		if (ready < 0) {
-			perror("poll");
+			// O sinal de desligamento interrompe o poll antes de setar o
+			// flag: sai do loop sem poluir o stderr com "Interrupted
+			// system call"
+			if (g_shutdown == 0)
+				perror("poll");
 			break;
 		}
 
@@ -238,6 +274,16 @@ bool WebServ::run() {
 			handle_client_events(fd, index, revents);
 		}
 	}
+	// Desligamento limpo: derruba as conexoes ainda abertas (close_client
+	// fecha os pipes do CGI e manda SIGTERM nos filhos) e fecha os sockets
+	// de escuta. Sem isso sobrariam fd e filho orfao apos o Ctrl-C.
+	std::vector<int> sobrando;
+	for (std::map<int, Client>::iterator it = _clients.begin();
+			 it != _clients.end(); ++it)
+		sobrando.push_back(it->first);
+	for (size_t i = 0; i < sobrando.size(); i++)
+		close_client(sobrando[i]);
+	cleanup_socket();
 	return true;
 }
 
@@ -406,7 +452,10 @@ bool WebServ::handle_client_read(int client_fd, int index) {
 bool WebServ::handle_client_write(int client_fd, int index) {
 	Client &client = _clients[client_fd];
 
-	// Primeiro os headers (e o corpo que esteja em memoria)
+	// Uma unica escrita por poll, como manda a regua de avaliacao
+	// ("only one read or one write per client per select()"). O send dos
+	// headers fecha a operacao do turno; o arquivo em disco so comeca no
+	// proximo evento, quando a condicao de cima ja for falsa na entrada.
 	if (client.sent < client.response.size()) {
 		ssize_t bytes_sent =
 				send(client_fd, client.response.data() + client.sent,
@@ -419,10 +468,8 @@ bool WebServ::handle_client_write(int client_fd, int index) {
 		}
 		client.last_activity = std::time(NULL);
 		client.sent += static_cast<size_t>(bytes_sent);
-		if (client.sent < client.response.size()) {
-			_poll_fds[index].events = POLLOUT;
-			return true;
-		}
+		_poll_fds[index].events = POLLOUT;
+		return true;
 	}
 	if (client.file_fd >= 0) {
 		client.state = SENDING_FILE;
@@ -441,38 +488,50 @@ bool WebServ::handle_client_write(int client_fd, int index) {
 // nao da pra distinguir EAGAIN de um erro de verdade: a saida e guardar o
 // que sobrou e esperar o proximo POLLOUT. Erro real aparece como
 // POLLHUP/POLLERR no poll ou estoura o timeout.
+//
+// A regua pede UMA operacao de I/O por cliente por select(): por isso nao
+// ha loop aqui. Numa passada ou le um bloco do disco, ou manda um bloco
+// pelo socket. O POLLOUT e level-triggered, entao o poll seguinte volta na
+// hora e a transferencia continua sem travar.
 bool WebServ::send_file_block(int client_fd, Client &client, int index) {
 	static const size_t FILE_CHUNK = 64 * 1024;
 
-	while (client.file_sent < client.file_size) {
-		if (client.file_buffer_pos >= client.file_buffer.size()) {
-			size_t remaining = client.file_size - client.file_sent;
-			size_t wanted = (remaining < FILE_CHUNK) ? remaining : FILE_CHUNK;
-
-			client.file_buffer.resize(wanted);
-			ssize_t bytes_read = read(client.file_fd, &client.file_buffer[0], wanted);
-
-			if (bytes_read <= 0) {
-				close_client(client_fd);
-				return false;
-			}
-			client.file_buffer.resize(static_cast<size_t>(bytes_read));
-			client.file_buffer_pos = 0;
-		}
-		ssize_t bytes_sent = send(client_fd,
-															&client.file_buffer[client.file_buffer_pos],
-															client.file_buffer.size() - client.file_buffer_pos, 0);
-		if (bytes_sent <= 0) {
-			// Buffer do socket cheio: espera o proximo POLLOUT
-			_poll_fds[index].events = POLLOUT;
-			return true;
-		}
-		client.last_activity = std::time(NULL);
-		client.file_buffer_pos += static_cast<size_t>(bytes_sent);
-		client.file_sent += static_cast<size_t>(bytes_sent);
+	if (client.file_sent >= client.file_size) {
+		// Mandou tudo: fecha no proprio poll, ja que nao ha o que enviar
+		close_client(client_fd);
+		return false;
 	}
-	close_client(client_fd);
-	return false;
+	if (client.file_buffer_pos >= client.file_buffer.size()) {
+		// Buffer vazio: unico read() desta passada
+		size_t remaining = client.file_size - client.file_sent;
+		size_t wanted = (remaining < FILE_CHUNK) ? remaining : FILE_CHUNK;
+
+		client.file_buffer.resize(wanted);
+		ssize_t bytes_read = read(client.file_fd, &client.file_buffer[0], wanted);
+
+		if (bytes_read <= 0) {
+			close_client(client_fd);
+			return false;
+		}
+		client.file_buffer.resize(static_cast<size_t>(bytes_read));
+		client.file_buffer_pos = 0;
+		_poll_fds[index].events = POLLOUT;
+		return true;
+	}
+	// Buffer tem dado: unico send() desta passada
+	ssize_t bytes_sent = send(client_fd,
+														&client.file_buffer[client.file_buffer_pos],
+														client.file_buffer.size() - client.file_buffer_pos, 0);
+	if (bytes_sent <= 0) {
+		// Buffer do socket cheio: espera o proximo POLLOUT
+		_poll_fds[index].events = POLLOUT;
+		return true;
+	}
+	client.last_activity = std::time(NULL);
+	client.file_buffer_pos += static_cast<size_t>(bytes_sent);
+	client.file_sent += static_cast<size_t>(bytes_sent);
+	_poll_fds[index].events = POLLOUT;
+	return true;
 }
 
 void WebServ::close_file(Client &client) {

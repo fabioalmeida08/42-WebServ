@@ -52,6 +52,8 @@ def server_pid():
 
 
 def fd_count(pid):
+    if pid is None:
+        return None
     try:
         return len(os.listdir("/proc/%d/fd" % pid))
     except OSError:
@@ -59,6 +61,8 @@ def fd_count(pid):
 
 
 def rss_kb(pid):
+    if pid is None:
+        return None
     try:
         for line in open("/proc/%d/status" % pid):
             if line.startswith("VmRSS:"):
@@ -181,6 +185,16 @@ def main():
                   % (percentile(lat, 50) * 1000,
                      percentile(lat, 95) * 1000,
                      percentile(lat, 100) * 1000))
+        # Regua de avaliacao (no original via `siege -b`): "the server
+        # must be available at all times" / "availability must be > 99.5%".
+        # Como o siege nao da pra instalar aqui, o stress.py mede a mesma
+        # coisa: fraction de respostas 2xx sobre o total.
+        dispon = (len(results) - len(bad)) * 100.0 / len(results) \
+            if results else 0.0
+        print("disponibilidade: %.2f%% de %d respostas "
+              "(a regua exige > 99.5%%)" % (dispon, len(results)))
+        if dispon <= 99.5:
+            fail("disponibilidade %.2f%% nao passa dos 99.5%%" % dispon)
         if bad:
             kinds = {}
             for _, status in bad:
