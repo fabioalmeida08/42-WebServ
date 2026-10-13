@@ -14,6 +14,7 @@
 #include "../includes/http_utils.hpp"
 #include "../includes/mime.hpp"
 #include <algorithm>
+#include <iostream>
 
 static bool	is_dir_path(const std::string &path)
 {
@@ -226,7 +227,7 @@ Response		Router::_handle_del_request(Request &req, const Server &server_config,
 		return _generate_error_response(403, server_config); // Sem permissão para apagar
 }
 
-Response Router::handle_request(Request &req, const Server &server_config) {
+Response Router::handle_request(Request &req, const Server &server_config, Cgi *cgi) {
 	Response response;
 	std::string uri = req.get_path();
 	
@@ -241,6 +242,23 @@ Response Router::handle_request(Request &req, const Server &server_config) {
 	{
 		response.set_status(best_match->get_redirect_code());
 		response.set_header("Location", best_match->get_redirect_target());
+		return response;
+	}
+
+	// CGI: antes do dispatch por método, porque um POST pra CGI não é
+	// upload — o corpo vai pro stdin do script, não pro disco
+	if (Cgi::is_cgi_path(uri, *best_match))
+	{
+		if (cgi == NULL)
+			return _generate_error_response(500, server_config);
+		std::string	err;
+		if (!cgi->start(req, server_config, *best_match,
+		                Cgi::script_path_of(uri, *best_match), "", err))
+		{
+			std::cerr << "cgi: " << err << std::endl;
+			return _generate_error_response(502, server_config);
+		}
+		response.set_is_cgi(true);
 		return response;
 	}
 
