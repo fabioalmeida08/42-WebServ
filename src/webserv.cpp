@@ -100,6 +100,7 @@ bool WebServ::setup_listen_sockets() {
 		}
 
 		_listen_sockets.push_back(listen_socket);
+		_listen_fds[listen_socket.fd] = static_cast<int>(_listen_sockets.size()) - 1;
 	}
 
 	if (_listen_sockets.empty()) {
@@ -131,11 +132,10 @@ bool WebServ::setup_server() {
 }
 
 int WebServ::find_listen_index(int fd) const {
-	for (size_t i = 0; i < _listen_sockets.size(); i++) {
-		if (_listen_sockets[i].fd == fd)
-			return static_cast<int>(i);
-	}
-	return -1;
+	std::map<int, int>::const_iterator it = _listen_fds.find(fd);
+	if (it == _listen_fds.end())
+		return -1;
+	return it->second;
 }
 
 bool WebServ::run() {
@@ -151,29 +151,31 @@ bool WebServ::run() {
 	}
 
 	while (1) {
-		int ready = poll(_poll_fds.data(), _poll_fds.size(), -1);
+		int ready = poll(_poll_fds.data(), _poll_fds.size(), REQUEST_TIMEOUT * 1000);
 
 		if (ready < 0) {
 			perror("poll");
 			break;
 		}
 
+		check_timeouts();
+
+		// Itera de tras pra frente porque close_client apaga do vetor
 		for (int i = static_cast<int>(_poll_fds.size()) - 1; i >= 0; i--) {
 			struct pollfd &pfd = _poll_fds[i];
 
 			if (pfd.revents == 0)
 				continue;
 
-			int listen_index = find_listen_index(pfd.fd);
-			if (listen_index >= 0) {
-				handle_new_connection(listen_index);
-			} else if (pfd.revents & POLLIN) {
-				handle_client_read(pfd.fd, i);
-			} else if (pfd.revents & POLLOUT) {
-				handle_client_write(pfd.fd, i);
-			} else if (pfd.revents & (POLLHUP | POLLERR | POLLNVAL)) {
-				close_client(pfd.fd, i);
+			if (find_listen_index(pfd.fd) >= 0) {
+				handle_new_connection(find_listen_index(pfd.fd));
+				continue;
 			}
+			if (_clients.find(pfd.fd) == _clients.end())
+				continue;
+			// POLLIN e POLLOUT podem chegar juntos; o indice pode mudar
+			// dentro do handler, por isso o revents e capturado antes
+			handle_client_events(pfd.fd, i, pfd.revents);
 		}
 	}
 	return true;
@@ -205,20 +207,36 @@ void WebServ::handle_new_connection(int listen_index) {
 						<< _listen_sockets[listen_index].port << std::endl;
 }
 
-void WebServ::handle_client_read(int client_fd, int index) {
+// Dispara o que o poll marcou para um cliente. Retorna false se o cliente
+// foi fechado pelo handler (e o vetor de fds ja foi alterado nesse caso).
+void WebServ::handle_client_events(int client_fd, int index, short revents) {
+	if (revents & (POLLHUP | POLLERR | POLLNVAL)) {
+		close_client(client_fd, index);
+		return;
+	}
+	if ((revents & POLLIN) && !handle_client_read(client_fd, index))
+		return;
+	if (_clients.find(client_fd) == _clients.end())
+		return;
+	if (revents & POLLOUT)
+		handle_client_write(client_fd, index);
+}
+
+bool WebServ::handle_client_read(int client_fd, int index) {
 	char buffer[4096];
 	ssize_t bytes_rcv = recv(client_fd, buffer, sizeof(buffer), 0);
 
 	if (bytes_rcv <= 0) {
 		close_client(client_fd, index);
-		return;
+		return false;
 	}
 
 	Client &client = _clients[client_fd];
+	client.last_activity = std::time(NULL);
 	try {
 		client.parser.feed(buffer, static_cast<size_t>(bytes_rcv));
 		if (!client.parser.is_done())
-			return;
+			return true;
 
 		const Server &server = get_client_server(client_fd);
 		Response response;
@@ -241,12 +259,14 @@ void WebServ::handle_client_read(int client_fd, int index) {
 	} catch (const std::exception &e) {
 		std::cerr << "fd " << client_fd << ": " << e.what() << std::endl;
 		close_client(client_fd, index);
-		return;
+		return false;
 	}
+	client.state = WRITING_RESPONSE;
 	_poll_fds[index].events = POLLOUT;
+	return true;
 }
 
-void WebServ::handle_client_write(int client_fd, int index) {
+bool WebServ::handle_client_write(int client_fd, int index) {
 	Client &client = _clients[client_fd];
 	ssize_t bytes_sent =
 			send(client_fd, client.response.data() + client.sent,
@@ -254,11 +274,40 @@ void WebServ::handle_client_write(int client_fd, int index) {
 
 	if (bytes_sent <= 0) {
 		close_client(client_fd, index);
-		return;
+		return false;
 	}
+	client.last_activity = std::time(NULL);
 	client.sent += static_cast<size_t>(bytes_sent);
-	if (client.sent >= client.response.size())
+	if (client.sent >= client.response.size()) {
 		close_client(client_fd, index);
+		return false;
+	}
+	return true;
+}
+
+// Fecha clientes que nunca terminaram de mandar o request. Quem ja tem a
+// resposta pronta nao expira: o envio termina sozinho.
+void WebServ::check_timeouts() {
+	time_t now = std::time(NULL);
+
+	for (int i = static_cast<int>(_poll_fds.size()) - 1; i >= 0; i--) {
+		std::map<int, Client>::iterator it = _clients.find(_poll_fds[i].fd);
+		if (it == _clients.end() || it->second.state != READING)
+			continue;
+		if (now - it->second.last_activity < REQUEST_TIMEOUT)
+			continue;
+
+		int client_fd = _poll_fds[i].fd;
+		Response timeout = Response::error(408, get_client_server(client_fd));
+
+		std::cout << "fd " << client_fd << ": timeout após "
+							<< REQUEST_TIMEOUT << "s -> 408" << std::endl;
+		timeout.set_header("Connection", "close");
+		it->second.response = timeout.build();
+		it->second.sent = 0;
+		it->second.state = WRITING_RESPONSE;
+		_poll_fds[i].events = POLLOUT;
+	}
 }
 
 void WebServ::close_client(int client_fd, int index) {
