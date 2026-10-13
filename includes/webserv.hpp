@@ -58,7 +58,15 @@ class WebServ {
 		size_t sent;
 		ClientState state;
 		time_t last_activity;
-		Client() : sent(0), state(READING), last_activity(std::time(NULL)) {}
+		int file_fd;
+		size_t file_size;
+		size_t file_sent;
+		// Bloco lido do disco e ainda nao enviado por completo: sem isso
+		// um send() parcial perde o resto do bloco
+		std::string file_buffer;
+		size_t file_buffer_pos;
+		Client() : sent(0), state(READING), last_activity(std::time(NULL)),
+		           file_fd(-1), file_size(0), file_sent(0), file_buffer_pos(0) {}
 	};
 
 	std::vector<Server> _servers;
@@ -81,6 +89,8 @@ class WebServ {
 	void handle_client_events(int client_fd, int index, short revents);
 	bool handle_client_read(int client_fd, int index);
 	bool handle_client_write(int client_fd, int index);
+	bool send_file_block(int client_fd, Client &client, int index);
+	void close_file(Client &client);
 	void check_timeouts();
 	void close_client(int client_fd, int index);
 	const Server &get_client_server(int client_fd);

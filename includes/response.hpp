@@ -25,6 +25,9 @@ class Response
 		std::map<std::string, std::string>	_headers;
 		std::string	_body;
 		bool	_no_body;
+		bool	_has_file;
+		size_t	_file_size;
+		std::string	_file_path;
 	public:
 		Response();
 		Response(const Response &other);
@@ -36,8 +39,16 @@ class Response
 		void	set_body(const std::string &body);
 		void	set_no_body(bool no_body);
 
+		// Resposta cujo corpo esta no disco: o WebServ manda em blocos
+		// em vez de carregar o arquivo inteiro na memoria
+		void	set_file(const std::string &path, size_t file_size);
+
 		int	get_status() const;
 		const std::string	&get_status_msg() const;
+		bool	get_no_body() const;
+		bool	has_file() const;
+		size_t	get_file_size() const;
+		const std::string	&get_file_path() const;
 
 		std::string	build() const;
 		void	clear();

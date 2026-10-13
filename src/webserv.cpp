@@ -256,6 +256,21 @@ bool WebServ::handle_client_read(int client_fd, int index) {
 		}
 		response.set_header("Connection", "close");
 		client.response = response.build();
+		// Corpo em disco: abre o arquivo e manda em blocos, sem carregar
+		// tudo na memoria (subject: nao pode estourar RAM)
+		if (response.has_file() && !response.get_no_body()) {
+			int fd = open(response.get_file_path().c_str(), O_RDONLY);
+			if (fd < 0) {
+				client.response = Response::error(500, server).build();
+			} else if (!set_non_blocking(fd)) {
+				close(fd);
+				client.response = Response::error(500, server).build();
+			} else {
+				client.file_fd = fd;
+				client.file_size = response.get_file_size();
+				client.file_sent = 0;
+			}
+		}
 	} catch (const std::exception &e) {
 		std::cerr << "fd " << client_fd << ": " << e.what() << std::endl;
 		close_client(client_fd, index);
@@ -268,36 +283,103 @@ bool WebServ::handle_client_read(int client_fd, int index) {
 
 bool WebServ::handle_client_write(int client_fd, int index) {
 	Client &client = _clients[client_fd];
-	ssize_t bytes_sent =
-			send(client_fd, client.response.data() + client.sent,
-					 client.response.size() - client.sent, 0);
 
-	if (bytes_sent <= 0) {
-		close_client(client_fd, index);
-		return false;
+	// Primeiro os headers (e o corpo que esteja em memoria)
+	if (client.sent < client.response.size()) {
+		ssize_t bytes_sent =
+				send(client_fd, client.response.data() + client.sent,
+						 client.response.size() - client.sent, 0);
+
+		if (bytes_sent <= 0) {
+			// Socket cheio: espera o proximo POLLOUT em vez de derrubar
+			_poll_fds[index].events = POLLOUT;
+			return true;
+		}
+		client.last_activity = std::time(NULL);
+		client.sent += static_cast<size_t>(bytes_sent);
+		if (client.sent < client.response.size()) {
+			_poll_fds[index].events = POLLOUT;
+			return true;
+		}
 	}
-	client.last_activity = std::time(NULL);
-	client.sent += static_cast<size_t>(bytes_sent);
-	if (client.sent >= client.response.size()) {
-		close_client(client_fd, index);
-		return false;
+	if (client.file_fd >= 0) {
+		client.state = SENDING_FILE;
+		return send_file_block(client_fd, client, index);
 	}
-	return true;
+	close_client(client_fd, index);
+	return false;
 }
 
-// Fecha clientes que nunca terminaram de mandar o request. Quem ja tem a
-// resposta pronta nao expira: o envio termina sozinho.
+// Manda o arquivo em disco em blocos de FILE_CHUNK bytes. O arquivo em
+// disco nao passa pelo poll (isento pelo subject), mas o socket continua
+// sendo escrito só quando o poll libera POLLOUT.
+//
+// Um send() nao-bloqueante pode voltar parcial ou -1 quando o buffer do
+// socket enche. O subject proibe checar errno depois de read/write, entao
+// nao da pra distinguir EAGAIN de um erro de verdade: a saida e guardar o
+// que sobrou e esperar o proximo POLLOUT. Erro real aparece como
+// POLLHUP/POLLERR no poll ou estoura o timeout.
+bool WebServ::send_file_block(int client_fd, Client &client, int index) {
+	static const size_t FILE_CHUNK = 64 * 1024;
+
+	while (client.file_sent < client.file_size) {
+		if (client.file_buffer_pos >= client.file_buffer.size()) {
+			size_t remaining = client.file_size - client.file_sent;
+			size_t wanted = (remaining < FILE_CHUNK) ? remaining : FILE_CHUNK;
+
+			client.file_buffer.resize(wanted);
+			ssize_t bytes_read = read(client.file_fd, &client.file_buffer[0], wanted);
+
+			if (bytes_read <= 0) {
+				close_client(client_fd, index);
+				return false;
+			}
+			client.file_buffer.resize(static_cast<size_t>(bytes_read));
+			client.file_buffer_pos = 0;
+		}
+		ssize_t bytes_sent = send(client_fd,
+															&client.file_buffer[client.file_buffer_pos],
+															client.file_buffer.size() - client.file_buffer_pos, 0);
+		if (bytes_sent <= 0) {
+			// Buffer do socket cheio: espera o proximo POLLOUT
+			_poll_fds[index].events = POLLOUT;
+			return true;
+		}
+		client.last_activity = std::time(NULL);
+		client.file_buffer_pos += static_cast<size_t>(bytes_sent);
+		client.file_sent += static_cast<size_t>(bytes_sent);
+	}
+	close_client(client_fd, index);
+	return false;
+}
+
+void WebServ::close_file(Client &client) {
+	if (client.file_fd >= 0) {
+		close(client.file_fd);
+		client.file_fd = -1;
+	}
+}
+
+// Fecha clientes que nunca terminaram de mandar o request, e tambem os que
+// pararam de fazer progresso no envio (um peer que conecta e nunca le).
 void WebServ::check_timeouts() {
 	time_t now = std::time(NULL);
 
 	for (int i = static_cast<int>(_poll_fds.size()) - 1; i >= 0; i--) {
 		std::map<int, Client>::iterator it = _clients.find(_poll_fds[i].fd);
-		if (it == _clients.end() || it->second.state != READING)
+		if (it == _clients.end())
 			continue;
 		if (now - it->second.last_activity < REQUEST_TIMEOUT)
 			continue;
 
 		int client_fd = _poll_fds[i].fd;
+		if (it->second.state != READING) {
+			std::cout << "fd " << client_fd << ": sem progresso no envio após "
+								<< REQUEST_TIMEOUT << "s -> fechando" << std::endl;
+			close_client(client_fd, i);
+			continue;
+		}
+
 		Response timeout = Response::error(408, get_client_server(client_fd));
 
 		std::cout << "fd " << client_fd << ": timeout após "
@@ -311,6 +393,9 @@ void WebServ::check_timeouts() {
 }
 
 void WebServ::close_client(int client_fd, int index) {
+	Client &client = _clients[client_fd];
+
+	close_file(client);
 	_clients.erase(client_fd);
 	_client_listen.erase(client_fd);
 	close(client_fd);

@@ -149,13 +149,16 @@ Response		Router::_handle_get_request(Request &req, const Server &server_config,
 	// Sem permissão para ler
 	if (access(filepath.c_str(), R_OK) != 0)
 		return _generate_error_response(403, server_config);
-	std::ifstream file(filepath.c_str());
-	std::string body((std::istreambuf_iterator<char>(file)), std::istreambuf_iterator<char>());
-	file.close();
 
+	struct stat file_info;
+	if (stat(filepath.c_str(), &file_info) < 0 || !S_ISREG(file_info.st_mode))
+		return _generate_error_response(403, server_config);
+
+	// Não lemos o arquivo aqui: o WebServ manda em blocos pra não
+	// estourar a memoria com arquivos grandes
 	response.set_status(200);
 	response.set_header("Content-Type", _get_mime_type(filepath));
-	response.set_body(body);
+	response.set_file(filepath, static_cast<size_t>(file_info.st_size));
 	return (response);
 }
 
