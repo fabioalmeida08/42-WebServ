@@ -11,6 +11,7 @@
 /* ************************************************************************** */
 
 #include "../includes/webserv.hpp"
+#include <arpa/inet.h>
 #include <cstdio>
 #include <iostream>
 #include <netdb.h>
@@ -171,6 +172,12 @@ bool WebServ::run() {
 				handle_new_connection(find_listen_index(pfd.fd));
 				continue;
 			}
+			// Pipe do CGI: o dono e um cliente, mas o fd nao e socket
+			std::map<int, int>::iterator cgi_it = _cgi_fds.find(pfd.fd);
+			if (cgi_it != _cgi_fds.end()) {
+				handle_cgi_event(cgi_it->second, pfd.fd, pfd.revents);
+				continue;
+			}
 			if (_clients.find(pfd.fd) == _clients.end())
 				continue;
 			// POLLIN e POLLOUT podem chegar juntos; o indice pode mudar
@@ -201,6 +208,12 @@ void WebServ::handle_new_connection(int listen_index) {
 	_client_listen[client_fd] = listen_index;
 	_clients[client_fd].parser.set_max_body_size(
 			get_client_server(client_fd).get_client_max_body());
+	{
+		char addr[INET_ADDRSTRLEN];
+		struct sockaddr_in *sin = reinterpret_cast<struct sockaddr_in *>(&client_addr);
+		if (inet_ntop(AF_INET, &sin->sin_addr, addr, sizeof(addr)) != NULL)
+			_clients[client_fd].remote_addr = addr;
+	}
 	add_poll_fd(client_fd, POLLIN);
 
 	std::cout << "Cliente conectado, fd " << client_fd << " na porta "
@@ -211,7 +224,7 @@ void WebServ::handle_new_connection(int listen_index) {
 // foi fechado pelo handler (e o vetor de fds ja foi alterado nesse caso).
 void WebServ::handle_client_events(int client_fd, int index, short revents) {
 	if (revents & (POLLHUP | POLLERR | POLLNVAL)) {
-		close_client(client_fd, index);
+		close_client(client_fd);
 		return;
 	}
 	if ((revents & POLLIN) && !handle_client_read(client_fd, index))
@@ -227,7 +240,7 @@ bool WebServ::handle_client_read(int client_fd, int index) {
 	ssize_t bytes_rcv = recv(client_fd, buffer, sizeof(buffer), 0);
 
 	if (bytes_rcv <= 0) {
-		close_client(client_fd, index);
+		close_client(client_fd);
 		return false;
 	}
 
@@ -247,12 +260,33 @@ bool WebServ::handle_client_read(int client_fd, int index) {
 		} else {
 			Request &request = client.parser.get_request();
 			Router router;
-			response = router.handle_request(request, server);
+			response = router.handle_request(request, server, &client.cgi);
 			if (request.get_method() == "HEAD")
 				response.set_no_body(true);
 			std::cout << "fd " << client_fd << ": " << request.get_method() << " "
-								<< request.get_uri() << " -> " << response.get_status()
-								<< std::endl;
+								<< request.get_uri() << " -> ";
+			if (response.get_is_cgi())
+				std::cout << "CGI iniciado";
+			else
+				std::cout << response.get_status();
+			std::cout << std::endl;
+			if (response.get_is_cgi()) {
+				client.cgi_body = request.get_body();
+				client.cgi_body_sent = 0;
+				client.state = CGI_RUNNING;
+				client.last_activity = std::time(NULL);
+				// stdin do CGI: manda o corpo e depois da EOF. stdout
+				// sempre: a resposta vem por lá.
+				if (client.cgi.in_fd() >= 0) {
+					add_poll_fd(client.cgi.in_fd(), POLLOUT);
+					_cgi_fds[client.cgi.in_fd()] = client_fd;
+				}
+				if (client.cgi.out_fd() >= 0) {
+					add_poll_fd(client.cgi.out_fd(), POLLIN);
+					_cgi_fds[client.cgi.out_fd()] = client_fd;
+				}
+				return true;
+			}
 		}
 		response.set_header("Connection", "close");
 		client.response = response.build();
@@ -273,7 +307,7 @@ bool WebServ::handle_client_read(int client_fd, int index) {
 		}
 	} catch (const std::exception &e) {
 		std::cerr << "fd " << client_fd << ": " << e.what() << std::endl;
-		close_client(client_fd, index);
+		close_client(client_fd);
 		return false;
 	}
 	client.state = WRITING_RESPONSE;
@@ -306,7 +340,7 @@ bool WebServ::handle_client_write(int client_fd, int index) {
 		client.state = SENDING_FILE;
 		return send_file_block(client_fd, client, index);
 	}
-	close_client(client_fd, index);
+	close_client(client_fd);
 	return false;
 }
 
@@ -331,7 +365,7 @@ bool WebServ::send_file_block(int client_fd, Client &client, int index) {
 			ssize_t bytes_read = read(client.file_fd, &client.file_buffer[0], wanted);
 
 			if (bytes_read <= 0) {
-				close_client(client_fd, index);
+				close_client(client_fd);
 				return false;
 			}
 			client.file_buffer.resize(static_cast<size_t>(bytes_read));
@@ -349,7 +383,7 @@ bool WebServ::send_file_block(int client_fd, Client &client, int index) {
 		client.file_buffer_pos += static_cast<size_t>(bytes_sent);
 		client.file_sent += static_cast<size_t>(bytes_sent);
 	}
-	close_client(client_fd, index);
+	close_client(client_fd);
 	return false;
 }
 
@@ -373,10 +407,17 @@ void WebServ::check_timeouts() {
 			continue;
 
 		int client_fd = _poll_fds[i].fd;
+		if (it->second.state == CGI_RUNNING) {
+			std::cout << "fd " << client_fd << ": CGI sem resposta após "
+								<< REQUEST_TIMEOUT << "s -> 504" << std::endl;
+			// Mata o script e responde 504 no lugar da saida dele
+			finish_cgi(client_fd, it->second, 504);
+			continue;
+		}
 		if (it->second.state != READING) {
 			std::cout << "fd " << client_fd << ": sem progresso no envio após "
 								<< REQUEST_TIMEOUT << "s -> fechando" << std::endl;
-			close_client(client_fd, i);
+			close_client(client_fd);
 			continue;
 		}
 
@@ -387,19 +428,152 @@ void WebServ::check_timeouts() {
 		timeout.set_header("Connection", "close");
 		it->second.response = timeout.build();
 		it->second.sent = 0;
+		it->second.last_activity = now;
 		it->second.state = WRITING_RESPONSE;
 		_poll_fds[i].events = POLLOUT;
 	}
 }
 
-void WebServ::close_client(int client_fd, int index) {
-	Client &client = _clients[client_fd];
+// Um pipe do CGI ficou pronto. O fd nao e socket, mas passa pelo mesmo
+// poll() — o subject exige isso para todo I/O que pode esperar.
+void WebServ::handle_cgi_event(int client_fd, int cgi_fd, short revents) {
+	std::map<int, Client>::iterator it = _clients.find(client_fd);
+	if (it == _clients.end()) {
+		remove_poll_fd(cgi_fd);
+		_cgi_fds.erase(cgi_fd);
+		return;
+	}
+	Client &client = it->second;
+
+	if (cgi_fd == client.cgi.in_fd()) {
+		// O lado da escrita: manda o corpo e fecha o pipe (o CGI precisa
+		// do EOF pra saber que o body terminou)
+		if (revents & (POLLHUP | POLLERR | POLLNVAL)) {
+			// O script fechou o stdin sem ler; nao mata ele por isso
+			client.cgi.close_stdin();
+		} else {
+			client.cgi.feed_body(client.cgi_body, client.cgi_body_sent);
+		}
+		if (client.cgi.in_fd() < 0) {
+			remove_poll_fd(cgi_fd);
+			_cgi_fds.erase(cgi_fd);
+		}
+		client.last_activity = std::time(NULL);
+		return;
+	}
+	// POLLIN vem antes do POLLHUP: com saida rápida os dois chegam juntos
+	// e tratar o HUP primeiro mandava a resposta com o buffer vazio
+	if (revents & POLLIN) {
+		char buffer[4096];
+		ssize_t bytes_rcv = read(cgi_fd, buffer, sizeof(buffer));
+
+		if (bytes_rcv > 0) {
+			client.cgi.collect(buffer, static_cast<size_t>(bytes_rcv));
+			client.last_activity = std::time(NULL);
+			if (client.cgi.buffer_full()) {
+				std::cerr << "fd " << client_fd << ": saida do CGI passou de "
+									<< "10MB -> 500" << std::endl;
+				finish_cgi(client_fd, client, 500);
+			}
+			return;
+		}
+		if (bytes_rcv == 0) {
+			client.cgi.mark_eof();
+			client.cgi.finish();
+			finish_cgi(client_fd, client);
+			return;
+		}
+		// -1 sem POLLHUP: nao da pra checar errno, espera o proximo evento
+		return;
+	}
+	if (revents & (POLLHUP | POLLERR | POLLNVAL)) {
+		// EOF sem dado pendente: o script morreu sem fechar limpo
+		client.cgi.mark_eof();
+		client.cgi.finish();
+		finish_cgi(client_fd, client);
+	}
+}
+
+// CGI terminou: monta a resposta a partir da saida do script e volta pro
+// caminho normal de envio ao cliente.
+//
+// O last_activity precisa ser renovado aqui: sem isso o poll seguinte
+// retorna na hora (POLLOUT), o check_timeouts roda de novo com o mesmo
+// timestamp velho e derruba a conexao antes de enviar a resposta.
+void WebServ::finish_cgi(int client_fd, Client &client, int forced_status) {
+	const Server &server = get_client_server(client_fd);
+
+	// Captura antes do terminate(), que fecha os dois lados
+	int in_fd = client.cgi.in_fd();
+	int out_fd = client.cgi.out_fd();
+	remove_poll_fd(in_fd);
+	remove_poll_fd(out_fd);
+	_cgi_fds.erase(in_fd);
+	_cgi_fds.erase(out_fd);
+
+	Response response;
+	if (forced_status != 0) {
+		client.cgi.terminate();
+		response = Response::error(forced_status, server);
+	} else {
+		response = client.cgi.build_response(server);
+		client.cgi.terminate();
+	}
+	if (client.parser.get_request().get_method() == "HEAD")
+		response.set_no_body(true);
+	response.set_header("Connection", "close");
+	std::cout << "fd " << client_fd << ": CGI " << client.cgi.script_path()
+							<< " -> " << response.get_status() << std::endl;
+	client.response = response.build();
+	client.sent = 0;
+	client.last_activity = std::time(NULL);
+	client.state = WRITING_RESPONSE;
+
+	int index = -1;
+	for (size_t i = 0; i < _poll_fds.size(); i++) {
+		if (_poll_fds[i].fd == client_fd) {
+			index = static_cast<int>(i);
+			break;
+		}
+	}
+	if (index < 0) {
+		close_client(client_fd);
+		return;
+	}
+	_poll_fds[index].events = POLLOUT;
+}
+
+void WebServ::remove_poll_fd(int fd) {
+	if (fd < 0)
+		return;
+	for (size_t i = 0; i < _poll_fds.size(); i++) {
+		if (_poll_fds[i].fd == fd) {
+			_poll_fds.erase(_poll_fds.begin() + i);
+			return;
+		}
+	}
+}
+
+// O indice do fd no vetor nao pode ser confiado: remove_poll_fd pode ter
+// removido entradas antes e deslocado tudo. Por isso procura de novo.
+void WebServ::close_client(int client_fd) {
+	std::map<int, Client>::iterator it = _clients.find(client_fd);
+	if (it == _clients.end())
+		return;
+	Client &client = it->second;
+
+	// Pipes do CGI primeiro: eles ficam em posicoes diferentes no vetor
+	remove_poll_fd(client.cgi.in_fd());
+	remove_poll_fd(client.cgi.out_fd());
+	_cgi_fds.erase(client.cgi.in_fd());
+	_cgi_fds.erase(client.cgi.out_fd());
+	client.cgi.terminate();
 
 	close_file(client);
-	_clients.erase(client_fd);
+	_clients.erase(it);
 	_client_listen.erase(client_fd);
 	close(client_fd);
-	_poll_fds.erase(_poll_fds.begin() + index);
+	remove_poll_fd(client_fd);
 }
 
 const Server &WebServ::get_client_server(int client_fd) {
@@ -420,6 +594,12 @@ void WebServ::cleanup_socket() {
 
 bool WebServ::set_non_blocking(int fd) {
 	if (fcntl(fd, F_SETFL, O_NONBLOCK) < 0) {
+		perror("fcntl");
+		return false;
+	}
+	// Sem CLOEXEC o script do CGI ia herdar os sockets de todos os
+	// clientes conectados e segurar eles abertos ate morrer
+	if (fcntl(fd, F_SETFD, FD_CLOEXEC) < 0) {
 		perror("fcntl");
 		return false;
 	}

@@ -65,8 +65,14 @@ class WebServ {
 		// um send() parcial perde o resto do bloco
 		std::string file_buffer;
 		size_t file_buffer_pos;
+		// Corpo do request que ainda falta escrever no stdin do CGI
+		Cgi cgi;
+		std::string cgi_body;
+		size_t cgi_body_sent;
+		std::string remote_addr;
 		Client() : sent(0), state(READING), last_activity(std::time(NULL)),
-		           file_fd(-1), file_size(0), file_sent(0), file_buffer_pos(0) {}
+		           file_fd(-1), file_size(0), file_sent(0), file_buffer_pos(0),
+		           cgi_body_sent(0) {}
 	};
 
 	std::vector<Server> _servers;
@@ -74,6 +80,9 @@ class WebServ {
 	std::map<int, int> _client_listen;
 	std::map<int, int> _listen_fds;
 	std::map<int, Client> _clients;
+	// fd do pipe do CGI -> fd do cliente dono (o pipe nao e socket, mas
+	// tambem precisa passar pelo poll)
+	std::map<int, int> _cgi_fds;
 
 	int _reuse_addr;
 	int _backlog;
@@ -91,8 +100,14 @@ class WebServ {
 	bool handle_client_write(int client_fd, int index);
 	bool send_file_block(int client_fd, Client &client, int index);
 	void close_file(Client &client);
+	void start_cgi(int client_fd, int index, Client &client);
+	void handle_cgi_event(int client_fd, int cgi_fd, short revents);
+	// forced_status != 0 responde com esse erro no lugar da saida do script
+	// (timeout -> 504, saida gigante -> 500)
+	void finish_cgi(int client_fd, Client &client, int forced_status = 0);
+	void remove_poll_fd(int fd);
 	void check_timeouts();
-	void close_client(int client_fd, int index);
+	void close_client(int client_fd);
 	const Server &get_client_server(int client_fd);
 	int find_listen_index(int fd) const;
 	bool set_non_blocking(int fd);

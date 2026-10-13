@@ -23,6 +23,7 @@
 # include "response.hpp"
 # include "server.hpp"
 # include "location.hpp"
+# include "cgi.hpp"
 
 class Router {
 private:
@@ -44,7 +45,11 @@ public:
 	~Router();
 
 	// A função que vai ser chamada no handle_client_read
-	Response		handle_request(Request &req, const Server &server_config);
+	// Se a location tiver cgi configurado e a extensão casar, chama
+	// cgi->start() e devolve uma Response com set_is_cgi(true): o WebServ
+	// ainda nao pode montar nada, o script esta rodando.
+	Response		handle_request(Request &req, const Server &server_config,
+		                       Cgi *cgi = NULL);
 };
 
 #endif

@@ -18,9 +18,9 @@
 #include <sstream>
 #include <sys/stat.h>
 
-static bool	status_has_body(int code)
+// Respostas que nao levam corpo (1xx, 204, 304, 3xx)
+bool	Response::status_has_body(int code)
 {
-	// Sem corpo: 1xx, 204, 304 e qualquer 3xx (redirect)
 	if (code < 200 || code == 204 || code == 304)
 		return false;
 	if (code >= 300 && code < 400)
@@ -58,12 +58,12 @@ static std::string	default_error_page(int code, const std::string &reason)
 	return html.str();
 }
 
-Response::Response() : _status_code(200), _status_msg(HttpStatus::reason(200)), _no_body(false), _has_file(false), _file_size(0)
+Response::Response() : _status_code(200), _status_msg(HttpStatus::reason(200)), _no_body(false), _has_file(false), _is_cgi(false), _file_size(0)
 {
 
 }
 
-Response::Response(const Response &other) : _status_code(other._status_code), _status_msg(other._status_msg), _headers(other._headers), _body(other._body), _no_body(other._no_body), _has_file(other._has_file), _file_size(other._file_size), _file_path(other._file_path)
+Response::Response(const Response &other) : _status_code(other._status_code), _status_msg(other._status_msg), _headers(other._headers), _body(other._body), _no_body(other._no_body), _has_file(other._has_file), _is_cgi(other._is_cgi), _file_size(other._file_size), _file_path(other._file_path)
 {
 
 }
@@ -78,6 +78,7 @@ Response	&Response::operator=(const Response &other)
 		_body = other._body;
 		_no_body = other._no_body;
 		_has_file = other._has_file;
+		_is_cgi = other._is_cgi;
 		_file_size = other._file_size;
 		_file_path = other._file_path;
 	}
@@ -94,6 +95,11 @@ void	Response::set_status(int code)
 	_status_msg = HttpStatus::reason(code);
 }
 
+void	Response::set_status_msg(const std::string &status_msg)
+{
+	_status_msg = status_msg;
+}
+
 void	Response::set_header(const std::string &name, const std::string &value)
 {
 	_headers[name] = value;
@@ -107,6 +113,16 @@ void	Response::set_body(const std::string &body)
 void	Response::set_no_body(bool no_body)
 {
 	_no_body = no_body;
+}
+
+void	Response::set_is_cgi(bool is_cgi)
+{
+	_is_cgi = is_cgi;
+}
+
+bool	Response::get_is_cgi() const
+{
+	return _is_cgi;
 }
 
 void	Response::set_file(const std::string &path, size_t file_size)
@@ -154,6 +170,7 @@ void	Response::clear()
 	_body.clear();
 	_no_body = false;
 	_has_file = false;
+	_is_cgi = false;
 	_file_size = 0;
 	_file_path.clear();
 }
