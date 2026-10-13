@@ -24,8 +24,14 @@ TARGET = $(BIN_DIR)/$(NAME)
 SRCS := $(shell find $(SRCS_DIR) -type f -name "*.cpp")
 OBJS := $(patsubst $(SRCS_DIR)/%.cpp, $(OBJS_DIR)/%.o, $(SRCS))
 
+# Todo .o depende dos headers, para nao reconectar a toa
+HDRS := $(shell find includes -type f -name "*.hpp")
+
 # Regra principal
-all: $(TARGET)
+all: $(NAME)
+
+# O subject exige uma regra $(NAME)
+$(NAME): $(TARGET)
 
 # Como montar o executável final
 $(TARGET): $(OBJS)
@@ -34,7 +40,7 @@ $(TARGET): $(OBJS)
 	@printf "$(GREEN)🚀 Release binary created at $@$(RESET)\n"
 
 # Como compilar cada .cpp em um .o
-$(OBJS_DIR)/%.o: $(SRCS_DIR)/%.cpp
+$(OBJS_DIR)/%.o: $(SRCS_DIR)/%.cpp $(HDRS)
 	@mkdir -p $(@D)
 	@$(CXX) $(CXXFLAGS) -c $< -o $@
 
@@ -51,4 +57,4 @@ fclean: clean
 # Refazer tudo
 re: fclean all
 
-.PHONY: all clean fclean re
+.PHONY: all clean fclean re $(NAME)

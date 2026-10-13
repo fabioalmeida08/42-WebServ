@@ -230,6 +230,8 @@ void WebServ::handle_client_read(int client_fd, int index) {
 			Request &request = client.parser.get_request();
 			Router router;
 			response = router.handle_request(request, server);
+			if (request.get_method() == "HEAD")
+				response.set_no_body(true);
 			std::cout << "fd " << client_fd << ": " << request.get_method() << " "
 								<< request.get_uri() << " -> " << response.get_status()
 								<< std::endl;

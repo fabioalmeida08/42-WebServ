@@ -20,7 +20,12 @@
 
 static bool	status_has_body(int code)
 {
-	return code >= 200 && code != 204 && code != 304;
+	// Sem corpo: 1xx, 204, 304 e qualquer 3xx (redirect)
+	if (code < 200 || code == 204 || code == 304)
+		return false;
+	if (code >= 300 && code < 400)
+		return false;
+	return true;
 }
 
 static bool	read_file(const std::string &path, std::string &content)
@@ -53,12 +58,12 @@ static std::string	default_error_page(int code, const std::string &reason)
 	return html.str();
 }
 
-Response::Response() : _status_code(200), _status_msg(HttpStatus::reason(200))
+Response::Response() : _status_code(200), _status_msg(HttpStatus::reason(200)), _no_body(false)
 {
 
 }
 
-Response::Response(const Response &other) : _status_code(other._status_code), _status_msg(other._status_msg), _headers(other._headers), _body(other._body)
+Response::Response(const Response &other) : _status_code(other._status_code), _status_msg(other._status_msg), _headers(other._headers), _body(other._body), _no_body(other._no_body)
 {
 
 }
@@ -71,6 +76,7 @@ Response	&Response::operator=(const Response &other)
 		_status_msg = other._status_msg;
 		_headers = other._headers;
 		_body = other._body;
+		_no_body = other._no_body;
 	}
 	return *this;
 }
@@ -95,6 +101,11 @@ void	Response::set_body(const std::string &body)
 	_body = body;
 }
 
+void	Response::set_no_body(bool no_body)
+{
+	_no_body = no_body;
+}
+
 int	Response::get_status() const
 {
 	return _status_code;
@@ -111,21 +122,34 @@ void	Response::clear()
 	_status_msg = HttpStatus::reason(200);
 	_headers.clear();
 	_body.clear();
+	_no_body = false;
 }
 
 std::string	Response::build() const
 {
 	std::ostringstream	head;
-	bool				has_body = status_has_body(_status_code);
+	bool				has_body = status_has_body(_status_code) && !_no_body;
+	bool				has_date = false;
+	bool				has_server = false;
 
 	head << "HTTP/1.1 " << _status_code << " " << _status_msg << "\r\n";
 	for (std::map<std::string, std::string>::const_iterator it = _headers.begin();
 		it != _headers.end(); ++it)
 	{
-		if (HttpUtils::to_lower(it->first) == "content-length")
+		std::string	name = HttpUtils::to_lower(it->first);
+
+		if (name == "content-length")
 			continue;
+		if (name == "date")
+			has_date = true;
+		if (name == "server")
+			has_server = true;
 		head << it->first << ": " << it->second << "\r\n";
 	}
+	if (!has_server)
+		head << "Server: webserv/1.0\r\n";
+	if (!has_date)
+		head << "Date: " << HttpUtils::http_date() << "\r\n";
 	if (has_body)
 		head << "Content-Length: " << _body.size() << "\r\n";
 	head << "\r\n";
