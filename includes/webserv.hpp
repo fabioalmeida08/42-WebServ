@@ -23,6 +23,7 @@
 #include <sys/socket.h>
 #include <unistd.h>
 #include <cstdlib>
+#include <ctime>
 #include <poll.h>
 #include <fcntl.h>
 #include <vector>
@@ -40,34 +41,52 @@ class WebServ {
 			std::vector<int> server_indexes;
 		};
 
+		// NOTE: o cliente e uma maquina de estados; o CGI vai adicionar
+		// CGI_RUNNING e o envio de arquivo grande SENDING_FILE
+		enum ClientState {
+			READING,
+			WRITING_RESPONSE,
+			SENDING_FILE,
+			CGI_RUNNING,
+			CLOSING
+		};
+
 	struct Client
 	{
 		RequestParser parser;
 		std::string response;
 		size_t sent;
-		Client() : sent(0) {}
+		ClientState state;
+		time_t last_activity;
+		Client() : sent(0), state(READING), last_activity(std::time(NULL)) {}
 	};
 
 	std::vector<Server> _servers;
 	std::vector<ListenSocket> _listen_sockets;
 	std::map<int, int> _client_listen;
+	std::map<int, int> _listen_fds;
 	std::map<int, Client> _clients;
 
 	int _reuse_addr;
 	int _backlog;
 
+	//NOTE: metodos privados que seram usados em conjunto com o poll
+	std::vector<struct pollfd> _poll_fds;
 
+	// Um request incompleto nao pode ficar preso para sempre (subject:
+	// "A request to your server should never hang indefinitely")
+	static const int REQUEST_TIMEOUT = 60;
 
-		//NOTE: metodos privados que seram usados em conjunto com o poll
-		std::vector<struct pollfd> _poll_fds;
-		void handle_new_connection(int listen_index);
-		void handle_client_read(int client_fd, int index);
-		void handle_client_write(int client_fd, int index);
-		void close_client(int client_fd, int index);
-		const Server &get_client_server(int client_fd);
-		int find_listen_index(int fd) const;
-		bool set_non_blocking(int fd);
-		void add_poll_fd(int fd, short events);
+	void handle_new_connection(int listen_index);
+	void handle_client_events(int client_fd, int index, short revents);
+	bool handle_client_read(int client_fd, int index);
+	bool handle_client_write(int client_fd, int index);
+	void check_timeouts();
+	void close_client(int client_fd, int index);
+	const Server &get_client_server(int client_fd);
+	int find_listen_index(int fd) const;
+	bool set_non_blocking(int fd);
+	void add_poll_fd(int fd, short events);
 
 		//NOTE: declarado aqui mas não implementado porque não queremos uma
 		//cópia do webserv, deve existir somente um

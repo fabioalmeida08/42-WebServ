@@ -20,34 +20,6 @@ static bool	is_dir_path(const std::string &path)
 	return !path.empty() && path[path.size() - 1] == '/';
 }
 
-// O prefixo precisa bater na fronteira de um segmento: "location /files" nao
-// pode casar com "/files2".
-static bool	path_matches(const std::string &uri, const std::string &path)
-{
-	if (uri.compare(0, path.size(), path) != 0)
-		return false;
-	if (is_dir_path(path) || uri.size() == path.size())
-		return true;
-	return uri[path.size()] == '/';
-}
-
-const Location* Router::_match_location(const std::string &uri, const std::vector<Location> &locations)
-{
-	const	Location*	best_match = NULL;
-	size_t				max_len = 0;
-
-	for (size_t i = 0; i < locations.size(); i++)
-	{
-		if (path_matches(uri, locations[i].get_path())
-			&& locations[i].get_path().length() > max_len)
-		{
-			max_len = locations[i].get_path().length();
-			best_match = &locations[i];
-		}
-	}
-	return (best_match);
-}
-
 std::string     Router::_build_physical_path(const std::string &uri, const Location *loc)
 {
 	std::string	dir;
@@ -256,10 +228,18 @@ Response Router::handle_request(Request &req, const Server &server_config) {
 	std::string uri = req.get_path();
 	
 	// Achar o Location
-	const Location* best_match = _match_location(uri, server_config.get_locations());
+	const Location* best_match = Location::match(uri, server_config.get_locations());
 	
 	if (best_match == NULL)
 		return _generate_error_response(404, server_config); // Not Found
+
+	// Redirecionamento configurado na location (nginx: return 301 ...)
+	if (best_match->get_redirect_code() != 0)
+	{
+		response.set_status(best_match->get_redirect_code());
+		response.set_header("Location", best_match->get_redirect_target());
+		return response;
+	}
 
 	// Validação de Método
 	std::string	req_method = req.get_method();

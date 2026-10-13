@@ -32,6 +32,11 @@ class Location {
     Location();
     Location(const std::string &path);
 
+    // Acha a location mais especifica que casa com a URI; NULL se nenhuma.
+    // Compartilhada pelo Router e pelo Server (error_page).
+    static const Location *match(const std::string &uri,
+                                 const std::vector<Location> &locations);
+
     const std::string &get_path() const;
     const std::string &get_root() const;
     const std::vector<std::string> &get_methods() const;
