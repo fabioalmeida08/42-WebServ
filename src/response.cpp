@@ -58,12 +58,12 @@ static std::string	default_error_page(int code, const std::string &reason)
 	return html.str();
 }
 
-Response::Response() : _status_code(200), _status_msg(HttpStatus::reason(200)), _no_body(false)
+Response::Response() : _status_code(200), _status_msg(HttpStatus::reason(200)), _no_body(false), _has_file(false), _file_size(0)
 {
 
 }
 
-Response::Response(const Response &other) : _status_code(other._status_code), _status_msg(other._status_msg), _headers(other._headers), _body(other._body), _no_body(other._no_body)
+Response::Response(const Response &other) : _status_code(other._status_code), _status_msg(other._status_msg), _headers(other._headers), _body(other._body), _no_body(other._no_body), _has_file(other._has_file), _file_size(other._file_size), _file_path(other._file_path)
 {
 
 }
@@ -77,6 +77,9 @@ Response	&Response::operator=(const Response &other)
 		_headers = other._headers;
 		_body = other._body;
 		_no_body = other._no_body;
+		_has_file = other._has_file;
+		_file_size = other._file_size;
+		_file_path = other._file_path;
 	}
 	return *this;
 }
@@ -106,6 +109,33 @@ void	Response::set_no_body(bool no_body)
 	_no_body = no_body;
 }
 
+void	Response::set_file(const std::string &path, size_t file_size)
+{
+	_has_file = true;
+	_file_size = file_size;
+	_file_path = path;
+}
+
+bool	Response::get_no_body() const
+{
+	return _no_body;
+}
+
+bool	Response::has_file() const
+{
+	return _has_file;
+}
+
+size_t	Response::get_file_size() const
+{
+	return _file_size;
+}
+
+const std::string	&Response::get_file_path() const
+{
+	return _file_path;
+}
+
 int	Response::get_status() const
 {
 	return _status_code;
@@ -123,6 +153,9 @@ void	Response::clear()
 	_headers.clear();
 	_body.clear();
 	_no_body = false;
+	_has_file = false;
+	_file_size = 0;
+	_file_path.clear();
 }
 
 std::string	Response::build() const
@@ -150,12 +183,18 @@ std::string	Response::build() const
 		head << "Server: webserv/1.0\r\n";
 	if (!has_date)
 		head << "Date: " << HttpUtils::http_date() << "\r\n";
-	if (has_body)
-		head << "Content-Length: " << _body.size() << "\r\n";
+	// HEAD manda o mesmo Content-Length do GET, só sem o corpo
+	if (status_has_body(_status_code))
+	{
+		if (_has_file)
+			head << "Content-Length: " << _file_size << "\r\n";
+		else
+			head << "Content-Length: " << _body.size() << "\r\n";
+	}
 	head << "\r\n";
 
 	std::string	message = head.str();
-	if (has_body)
+	if (has_body && !_has_file)
 		message += _body;
 	return message;
 }
