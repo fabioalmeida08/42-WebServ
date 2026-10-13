@@ -12,19 +12,32 @@
 
 #include <iostream>
 #include <stdexcept>
+#include <string>
+#include <unistd.h>
 
 #include "../includes/parser.hpp"
 #include "../includes/webserv.hpp"
+
+static std::string	resolve_config(int argc, char *argv[])
+{
+	if (argc == 2)
+		return std::string(argv[1]);
+	if (argc == 1)
+	{
+		if (access("default.conf", R_OK) == 0)
+			return std::string("default.conf");
+		if (access("conf/default.conf", R_OK) == 0)
+			return std::string("conf/default.conf");
+	}
+	throw std::invalid_argument("Expected: ./webserv [config_file]");
+}
 
 int main(int argc, char *argv[])
 {
 	try
 	{
 		std::vector<Server> servers;
-		if (argc == 2)
-			servers = Parser(argv[1]).get_servers();
-		else
-			throw std::invalid_argument("Expected: ./webserv <config_file>");
+		servers = Parser(resolve_config(argc, argv)).get_servers();
 
 		WebServ server;
 		server.loadConfig(servers);

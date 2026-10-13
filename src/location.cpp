@@ -13,13 +13,13 @@
 #include "../includes/location.hpp"
 
 Location::Location()
-    : _path("/"), _root("html"), _index("index.html"), _autoindex(false),
+    : _path("/"), _root("www"), _index("index.html"), _autoindex(false),
       _redirect_code(0) {
   _methods.push_back("GET");
 }
 
 Location::Location(const std::string &path)
-    : _path(path), _root("html"), _index("index.html"), _autoindex(false),
+    : _path(path), _root("www"), _index("index.html"), _autoindex(false),
       _redirect_code(0) {
   _methods.push_back("GET");
 }
