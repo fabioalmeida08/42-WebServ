@@ -1,0 +1,26 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>webserv — porta 8082</title>
+<style>
+  body { background:#0b0d12; color:#e6e9ef; font:15px/1.6 system-ui,sans-serif;
+         max-width:720px; margin:0 auto; padding:48px 24px; }
+  h1 { color:#7cf0c4; font-size:26px; }
+  a { color:#7aa2ff; }
+  code { background:#12161f; padding:2px 6px; border-radius:4px; }
+  ul { padding-left:20px; }
+</style>
+</head>
+<body>
+  <h1>Segundo server block (root <code>www2</code>)</h1>
+  <p>Esta página é servida pela porta <strong>8082</strong> do
+     <code>multiport.conf</code>, com um root diferente do servidor da
+     porta 8081.</p>
+  <ul>
+    <li><a href="/docs/">/docs/</a> — autoindex ligado nesta porta</li>
+    <li><a href="/upload/">/upload/</a> — POST/DELETE funcionando aqui também</li>
+  </ul>
+</body>
+</html>

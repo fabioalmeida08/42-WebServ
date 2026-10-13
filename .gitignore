@@ -1,0 +1,15 @@
+bin/
+objs/
+.clangd
+en.subject.pdf
+.vscode
+www/upload/*
+!www/upload/.gitkeep
+www2/upload/*
+!www2/upload/.gitkeep
+__pycache__/
+*.pyc
+# Coisas do tester oficial da 42 — nao sao nossas, ficam so na maquina local
+cgi_test
+tester.conf
+YoupiBanane/
