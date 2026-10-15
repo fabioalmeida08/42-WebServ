@@ -21,6 +21,132 @@ static bool	is_dir_path(const std::string &path)
 	return !path.empty() && path[path.size() - 1] == '/';
 }
 
+// Extrai o "boundary" de um Content-Type multipart/form-data.
+// Devolve string vazia se nao for multipart ou se faltar o parametro.
+static std::string	get_multipart_boundary(const std::string &content_type)
+{
+	std::string	lower = HttpUtils::to_lower(content_type);
+	size_t		pos = lower.find("multipart/form-data");
+
+	if (pos == std::string::npos)
+		return "";
+	pos = lower.find("boundary=", pos);
+	if (pos == std::string::npos)
+		return "";
+	std::string	boundary = content_type.substr(pos + 9);
+	size_t		semi = boundary.find(';');
+	if (semi != std::string::npos)
+		boundary = boundary.substr(0, semi);
+	boundary = HttpUtils::trim(boundary);
+	// o boundary pode vir entre aspas: boundary="----xyz"
+	if (boundary.size() >= 2 && boundary[0] == '"'
+		&& boundary[boundary.size() - 1] == '"')
+		boundary = boundary.substr(1, boundary.size() - 2);
+	return boundary;
+}
+
+// Le o filename de um header Content-Disposition de uma parte do
+// multipart (form-data; name="file"; filename="foto.png").
+static std::string	extract_disposition_filename(const std::string &headers)
+{
+	std::string	lower = HttpUtils::to_lower(headers);
+	size_t		pos = lower.find("content-disposition");
+
+	if (pos == std::string::npos)
+		return "";
+	pos = lower.find("filename=", pos);
+	if (pos == std::string::npos)
+		return "";
+	size_t		i = pos + 9;
+	std::string	value;
+
+	while (i < headers.size() && (headers[i] == ' ' || headers[i] == '\t'))
+		i++;
+	if (i < headers.size() && headers[i] == '"')
+	{
+		i++;
+		while (i < headers.size() && headers[i] != '"')
+		{
+			if (headers[i] == '\\' && i + 1 < headers.size())
+				i++;
+			value += headers[i++];
+		}
+	}
+	else
+	{
+		while (i < headers.size() && headers[i] != ';'
+			&& headers[i] != '\r' && headers[i] != '\n')
+			value += headers[i++];
+	}
+	return HttpUtils::trim(value);
+}
+
+// O filename vem do cliente: nunca pode escapar da pasta de upload.
+// Fica so com o basename (barra normal e invertida sao separadores) e
+// descarta nomes vazios, "." e "..".
+static std::string	safe_upload_name(const std::string &name)
+{
+	size_t		pos = name.find_last_of("/\\");
+	std::string	base = (pos == std::string::npos) ? name : name.substr(pos + 1);
+
+	if (base.empty() || base == "." || base == "..")
+		return "";
+	if (base.find('\0') != std::string::npos)
+		return "";
+	return base;
+}
+
+// Grava cada parte com filename do corpo multipart em upload_dir,
+// respeitando o nome que veio do formulario. Devolve true se ao menos
+// um arquivo foi criado.
+static bool	store_multipart_files(const std::string &body,
+			const std::string &boundary, const std::string &upload_dir)
+{
+	std::string	delim = "--" + boundary;
+	size_t		pos = 0;
+	bool		stored = false;
+
+	while (true)
+	{
+		size_t	start = body.find(delim, pos);
+		if (start == std::string::npos)
+			break;
+		size_t	after = start + delim.size();
+		// "--boundary--" fecha o corpo: acabaram as partes
+		if (body.compare(after, 2, "--") == 0)
+			break;
+		if (body.compare(after, 2, "\r\n") == 0)
+			after += 2;
+		size_t	header_end = body.find("\r\n\r\n", after);
+		if (header_end == std::string::npos)
+			break;
+		std::string	headers = body.substr(after, header_end - after);
+		size_t		content_start = header_end + 4;
+		size_t		next = body.find(delim, content_start);
+		if (next == std::string::npos)
+			break;
+		size_t		content_end = next;
+		// o CRLF que precede o proximo boundary nao faz parte do arquivo
+		if (content_end >= 2 && body.compare(content_end - 2, 2, "\r\n") == 0)
+			content_end -= 2;
+		pos = next;
+
+		std::string	filename =
+			safe_upload_name(extract_disposition_filename(headers));
+		if (filename.empty())
+			continue; // campo de formulario comum, sem arquivo
+		std::string	filepath = upload_dir + "/" + filename;
+		std::ofstream	outfile(filepath.c_str(),
+			std::ios::out | std::ios::binary);
+		if (!outfile.is_open())
+			return false;
+		outfile.write(body.data() + content_start, content_end - content_start);
+		outfile.close();
+		stored = true;
+	}
+	return stored;
+}
+
 std::string     Router::_build_physical_path(const std::string &uri, const Location *loc)
 {
 	// O prefixo da location nao entra na URL que vira caminho de disco
@@ -168,6 +294,20 @@ Response		Router::_handle_post_request(Request &req, const Server &server_config
 		
 	if (upload_dir.empty())
 		return _generate_error_response(403, server_config);
+
+	// Upload de formulario: o nome do arquivo esta no filename de cada
+	// parte do multipart, nao na URL. Senao dois arquivos diferentes
+	// virariam o mesmo "upload" (nome do ultimo segmento do path).
+	std::string	boundary = get_multipart_boundary(req.get_header("content-type"));
+	if (!boundary.empty())
+	{
+		if (!store_multipart_files(req.get_body(), boundary, upload_dir))
+			return _generate_error_response(400, server_config);
+		response.set_status(201); // 201 Created
+		response.set_header("Content-Type", "text/plain");
+		response.set_body("Upload realizado com sucesso!\n");
+		return response;
+	}
 
 	size_t pos = req.get_path().find_last_of('/');
 	std::string filename = (pos == std::string::npos) ? req.get_path()
