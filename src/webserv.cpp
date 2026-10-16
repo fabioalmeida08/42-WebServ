@@ -44,10 +44,10 @@ bool WebServ::setup_listen_sockets() {
 		}
 		if (already_seen) {
 			const std::vector<std::string> &names = _servers[i].get_names();
-			std::cerr << "erro: a porta " << port << " e declarada por mais "
-								<< "de um bloco server; vhost esta fora do escopo, "
-								<< "entao esta configuracao nao funciona (bloco \""
-								<< (names.empty() ? std::string("(sem nome)")
+			std::cerr << "error: port " << port << " is declared by more "
+								<< "than one server block; vhost is out of scope, "
+								<< "so this configuration does not work (block \""
+								<< (names.empty() ? std::string("(unnamed)")
 								                 : names[0])
 								<< "\")" << std::endl;
 			cleanup_socket();
@@ -106,8 +106,8 @@ bool WebServ::setup_listen_sockets() {
 		freeaddrinfo(addr);
 
 		if (listen_socket.fd < 0) {
-			std::cerr << "erro: nao foi possivel bind na porta " << port
-								<< " (porta em uso ou sem permissao)" << std::endl;
+			std::cerr << "error: could not bind to port " << port
+								<< " (port already in use or permission denied)" << std::endl;
 			cleanup_socket();
 			return false;
 		}
@@ -117,7 +117,7 @@ bool WebServ::setup_listen_sockets() {
 	}
 
 	if (_listen_sockets.empty()) {
-		std::cerr << "nenhum socket de escuta foi criado" << std::endl;
+		std::cerr << "no listening socket was created" << std::endl;
 		return false;
 	}
 	return true;
@@ -139,8 +139,8 @@ bool WebServ::setup_server() {
 		return false;
 	if (!setup_listen())
 		return false;
-	std::cout << "Server Aguardando conexões em "
-						<< _listen_sockets.size() << " porta(s)..." << std::endl;
+	std::cout << "Server listening on "
+						<< _listen_sockets.size() << " port(s)..." << std::endl;
 	return true;
 }
 
@@ -258,7 +258,7 @@ void WebServ::handle_new_connection(int listen_index) {
 		}
 		add_poll_fd(client_fd, POLLIN);
 
-		std::cout << "Cliente conectado, fd " << client_fd << " na porta "
+		std::cout << "Client connected, fd " << client_fd << " on port "
 							<< _listen_sockets[listen_index].port << std::endl;
 	}
 }
@@ -325,7 +325,7 @@ bool WebServ::handle_client_read(int client_fd, int index) {
 		Response response;
 		if (client.parser.has_error()) {
 			response = Response::error(client.parser.get_error_code(), server);
-			std::cout << "fd " << client_fd << ": requisição inválida -> "
+			std::cout << "fd " << client_fd << ": invalid request -> "
 								<< response.get_status() << std::endl;
 		} else {
 			Request &request = client.parser.get_request();
@@ -336,7 +336,7 @@ bool WebServ::handle_client_read(int client_fd, int index) {
 			std::cout << "fd " << client_fd << ": " << request.get_method() << " "
 								<< request.get_uri() << " -> ";
 			if (response.get_is_cgi())
-				std::cout << "CGI iniciado";
+				std::cout << "CGI started";
 			else
 				std::cout << response.get_status();
 			std::cout << std::endl;
@@ -472,21 +472,21 @@ void WebServ::check_timeouts() {
 			continue;
 
 		if (client.state == CGI_RUNNING) {
-			std::cout << "fd " << client_fd << ": CGI sem resposta após "
+			std::cout << "fd " << client_fd << ": no CGI response after "
 								<< Cgi::TIMEOUT << "s -> 504" << std::endl;
 			finish_cgi(client_fd, client, 504);
 			continue;
 		}
 		if (client.state != READING) {
-			std::cout << "fd " << client_fd << ": sem progresso no envio após "
-								<< REQUEST_TIMEOUT << "s -> fechando" << std::endl;
+			std::cout << "fd " << client_fd << ": no send progress after "
+								<< REQUEST_TIMEOUT << "s -> closing" << std::endl;
 			close_client(client_fd);
 			continue;
 		}
 
 		Response timeout = Response::error(408, get_client_server(client_fd));
 
-		std::cout << "fd " << client_fd << ": timeout após "
+		std::cout << "fd " << client_fd << ": timeout after "
 							<< REQUEST_TIMEOUT << "s -> 408" << std::endl;
 		timeout.set_header("Connection", "close");
 		client.response = timeout.build();
@@ -536,8 +536,8 @@ void WebServ::handle_cgi_event(int client_fd, int cgi_fd, short revents) {
 			client.cgi.collect(buffer, static_cast<size_t>(bytes_rcv));
 			client.last_activity = std::time(NULL);
 			if (client.cgi.buffer_full()) {
-				std::cerr << "fd " << client_fd << ": saida do CGI passou do "
-									<< "teto permitido -> 500" << std::endl;
+				std::cerr << "fd " << client_fd << ": CGI output exceeded the "
+									<< "allowed limit -> 500" << std::endl;
 				finish_cgi(client_fd, client, 500);
 			}
 			return;

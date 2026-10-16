@@ -254,25 +254,25 @@ bool	Cgi::start(const Request &req, const Server &srv, const Location &loc,
 	{
 		if (loc.get_cgi_exec().empty())
 		{
-			err = "script nao encontrado: " + script_path;
+			err = "script not found: " + script_path;
 			return false;
 		}
 	}
 	else if (access(abs_script.c_str(),
 								 loc.get_cgi_exec().empty() ? X_OK : R_OK) != 0)
 	{
-		err = "script sem permissao de execucao: " + script_path;
+		err = "script is not executable: " + script_path;
 		return false;
 	}
 	if (abs_exec != abs_script
 		&& (stat(abs_exec.c_str(), &info) != 0 || !S_ISREG(info.st_mode)))
 	{
-		err = "interpretador de cgi nao encontrado: " + loc.get_cgi_exec();
+		err = "cgi interpreter not found: " + loc.get_cgi_exec();
 		return false;
 	}
 	if (access(abs_exec.c_str(), X_OK) != 0)
 	{
-		err = "interpretador de cgi sem permissao de execucao: " + abs_exec;
+		err = "cgi interpreter is not executable: " + abs_exec;
 		return false;
 	}
 
@@ -281,7 +281,7 @@ bool	Cgi::start(const Request &req, const Server &srv, const Location &loc,
 
 	if (pipe(in_pipe) != 0 || pipe(out_pipe) != 0)
 	{
-		err = "pipe() falhou";
+		err = "pipe() failed";
 		return false;
 	}
 
@@ -296,7 +296,7 @@ bool	Cgi::start(const Request &req, const Server &srv, const Location &loc,
 	_pid = fork();
 	if (_pid < 0)
 	{
-		err = "fork() falhou";
+		err = "fork() failed";
 		close(in_pipe[0]); close(in_pipe[1]);
 		close(out_pipe[0]); close(out_pipe[1]);
 		return false;
@@ -323,7 +323,7 @@ bool	Cgi::start(const Request &req, const Server &srv, const Location &loc,
 		argv.push_back(NULL);
 
 		execve(abs_exec.c_str(), &argv[0], &envp[0]);
-		std::cerr << "execve falhou: " << std::strerror(errno) << std::endl;
+		std::cerr << "execve failed: " << std::strerror(errno) << std::endl;
 		_exit(127);
 	}
 
