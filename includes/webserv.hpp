@@ -6,7 +6,7 @@
 /*   By: lbento <lbento@student.42.fr>              +#+  +:+       +#+        */
 /*                                                +#+#+#+#+#+   +#+           */
 /*   Created: 2026/07/27 12:03:51 by fabio             #+#    #+#             */
-/*   Updated: 2026/09/26 23:10:47 by lbento           ###   ########.fr       */
+/*   Updated: 2026/10/16 00:11:22 by lbento           ###   ########.fr       */
 /*                                                                            */
 /* ************************************************************************** */
 
@@ -29,7 +29,7 @@
 #include <vector>
 
 #include "../includes/server.hpp"
-#include "../includes/request_parser.hpp"
+#include "../includes/RequestParser.hpp"
 #include "../includes/response.hpp"
 #include "../includes/router.hpp"
 

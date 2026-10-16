@@ -1,17 +1,17 @@
 /* ************************************************************************** */
 /*                                                                            */
 /*                                                        :::      ::::::::   */
-/*   request_parser.cpp                                 :+:      :+:    :+:   */
+/*   RequestParser.cpp                                  :+:      :+:    :+:   */
 /*                                                    +:+ +:+         +:+     */
 /*   By: lbento <lbento@student.42.fr>              +#+  +:+       +#+        */
 /*                                                +#+#+#+#+#+   +#+           */
 /*   Created: 2026/08/18 12:28:11 by lbento            #+#    #+#             */
-/*   Updated: 2026/09/26 23:29:36 by lbento           ###   ########.fr       */
+/*   Updated: 2026/10/16 00:09:04 by lbento           ###   ########.fr       */
 /*                                                                            */
 /* ************************************************************************** */
 
-#include "../includes/request_parser.hpp"
-#include "../includes/http_utils.hpp"
+#include "../includes/RequestParser.hpp"
+#include "../includes/HttpUtils.hpp"
 #include <algorithm>
 #include <cctype>
 #include <limits>

@@ -6,12 +6,12 @@
 /*   By: lbento <lbento@student.42.fr>              +#+  +:+       +#+        */
 /*                                                +#+#+#+#+#+   +#+           */
 /*   Created: 2026/08/18 12:29:51 by lbento            #+#    #+#             */
-/*   Updated: 2026/09/26 23:18:48 by lbento           ###   ########.fr       */
+/*   Updated: 2026/10/16 00:10:24 by lbento           ###   ########.fr       */
 /*                                                                            */
 /* ************************************************************************** */
 
 #include "../includes/mime.hpp"
-#include "../includes/http_utils.hpp"
+#include "../includes/HttpUtils.hpp"
 
 struct MimeEntry
 {

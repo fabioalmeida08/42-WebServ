@@ -3,16 +3,16 @@
 /*                                                        :::      ::::::::   */
 /*   cgi.cpp                                            :+:      :+:    :+:   */
 /*                                                    +:+ +:+         +:+     */
-/*   By: fabio <fabio@student.42.fr>                +#+  +:+       +#+        */
+/*   By: lbento <lbento@student.42.fr>              +#+  +:+       +#+        */
 /*                                                +#+#+#+#+#+   +#+           */
 /*   Created: 2026/10/13 00:00:00 by fabio             #+#    #+#             */
-/*   Updated: 2026/10/13 00:00:00 by fabio            ###   ########.fr       */
+/*   Updated: 2026/10/16 00:11:00 by lbento           ###   ########.fr       */
 /*                                                                            */
 /* ************************************************************************** */
 
 #include "../includes/cgi.hpp"
-#include "../includes/http_utils.hpp"
-#include "../includes/http_status.hpp"
+#include "../includes/HttpUtils.hpp"
+#include "../includes/HttpStatus.hpp"
 
 #include <cerrno>
 #include <cctype>

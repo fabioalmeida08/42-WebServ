@@ -6,13 +6,13 @@
 /*   By: lbento <lbento@student.42.fr>              +#+  +:+       +#+        */
 /*                                                +#+#+#+#+#+   +#+           */
 /*   Created: 2026/08/19 18:52:08 by ranhaia-          #+#    #+#             */
-/*   Updated: 2026/09/26 23:32:31 by lbento           ###   ########.fr       */
+/*   Updated: 2026/10/16 00:09:33 by lbento           ###   ########.fr       */
 /*                                                                            */
 /* ************************************************************************** */
 
 #include "../includes/response.hpp"
-#include "../includes/http_status.hpp"
-#include "../includes/http_utils.hpp"
+#include "../includes/HttpStatus.hpp"
+#include "../includes/HttpUtils.hpp"
 #include "../includes/mime.hpp"
 #include <fstream>
 #include <sstream>

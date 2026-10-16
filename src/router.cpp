@@ -6,12 +6,12 @@
 /*   By: lbento <lbento@student.42.fr>              +#+  +:+       +#+        */
 /*                                                +#+#+#+#+#+   +#+           */
 /*   Created: 2026/09/14 13:58:53 by ranhaia-          #+#    #+#             */
-/*   Updated: 2026/09/26 23:38:21 by lbento           ###   ########.fr       */
+/*   Updated: 2026/10/16 00:10:10 by lbento           ###   ########.fr       */
 /*                                                                            */
 /* ************************************************************************** */
 
 #include "../includes/router.hpp"
-#include "../includes/http_utils.hpp"
+#include "../includes/HttpUtils.hpp"
 #include "../includes/mime.hpp"
 #include <algorithm>
 #include <iostream>

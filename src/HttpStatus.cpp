@@ -1,16 +1,16 @@
 /* ************************************************************************** */
 /*                                                                            */
 /*                                                        :::      ::::::::   */
-/*   http_status.cpp                                    :+:      :+:    :+:   */
+/*   HttpStatus.cpp                                     :+:      :+:    :+:   */
 /*                                                    +:+ +:+         +:+     */
 /*   By: lbento <lbento@student.42.fr>              +#+  +:+       +#+        */
 /*                                                +#+#+#+#+#+   +#+           */
 /*   Created: 2026/08/18 12:28:28 by lbento            #+#    #+#             */
-/*   Updated: 2026/09/26 22:38:46 by lbento           ###   ########.fr       */
+/*   Updated: 2026/10/16 00:08:29 by lbento           ###   ########.fr       */
 /*                                                                            */
 /* ************************************************************************** */
 
-#include "../includes/http_status.hpp"
+#include "../includes/HttpStatus.hpp"
 
 std::string	HttpStatus::reason(int code)
 {
