@@ -1,15 +1,3 @@
-/* ************************************************************************** */
-/*                                                                            */
-/*                                                        :::      ::::::::   */
-/*   response.cpp                                       :+:      :+:    :+:   */
-/*                                                    +:+ +:+         +:+     */
-/*   By: lbento <lbento@student.42.fr>              +#+  +:+       +#+        */
-/*                                                +#+#+#+#+#+   +#+           */
-/*   Created: 2026/08/19 18:52:08 by ranhaia-          #+#    #+#             */
-/*   Updated: 2026/10/16 00:09:33 by lbento           ###   ########.fr       */
-/*                                                                            */
-/* ************************************************************************** */
-
 #include "../includes/response.hpp"
 #include "../includes/HttpStatus.hpp"
 #include "../includes/HttpUtils.hpp"
@@ -18,7 +6,6 @@
 #include <sstream>
 #include <sys/stat.h>
 
-// Respostas que nao levam corpo (1xx, 204, 304, 3xx)
 bool	Response::status_has_body(int code)
 {
 	if (code < 200 || code == 204 || code == 304)
@@ -200,7 +187,6 @@ std::string	Response::build() const
 		head << "Server: webserv/1.0\r\n";
 	if (!has_date)
 		head << "Date: " << HttpUtils::http_date() << "\r\n";
-	// HEAD manda o mesmo Content-Length do GET, só sem o corpo
 	if (status_has_body(_status_code))
 	{
 		if (_has_file)

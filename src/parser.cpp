@@ -1,15 +1,3 @@
-/* ************************************************************************** */
-/*                                                                            */
-/*                                                        :::      ::::::::   */
-/*   parser.cpp                                         :+:      :+:    :+:   */
-/*                                                    +:+ +:+         +:+     */
-/*   By: lbento <lbento@student.42.fr>              +#+  +:+       +#+        */
-/*                                                +#+#+#+#+#+   +#+           */
-/*   Created: 2026/10/07 05:17:29 by lbento            #+#    #+#             */
-/*   Updated: 2026/10/07 05:18:50 by lbento           ###   ########.fr       */
-/*                                                                            */
-/* ************************************************************************** */
-
 #include <arpa/inet.h>
 #include <cctype>
 #include <cstdlib>
@@ -22,8 +10,6 @@
 #include "../includes/parser.hpp"
 
 static bool is_valid_method(const std::string &method) {
-	// HEAD e opcional na config de proposito: nao declarado, ele nao e
-	// aceito (o tester oficial do 42 espera 405 numa location "methods GET")
 	return method == "GET" || method == "POST" || method == "DELETE"
 		|| method == "HEAD";
 }
@@ -320,14 +306,10 @@ void Parser::parse_location_directive(Location &location,
 			error("diretiva 'upload_store' espera 1 valor", line);
 		location.set_upload_store(values[0]);
 	} else if (name == "client_max_body_size") {
-		// Limite por location: o teste oficial do 42 pede um /post_body com
-		// maxBody 100 enquanto as outras locations aceitam corpo enorme.
 		if (values.size() != 1)
 			error("diretiva 'client_max_body_size' espera 1 valor", line);
 		location.set_max_body_size(to_size(values[0], line));
 	} else if (name == "cgi") {
-		// "cgi .py;"         -> executa o proprio arquivo (shebang)
-		// "cgi .bla cgi_test" -> chama o executavel passando o arquivo
 		if (values.size() < 1 || values.size() > 2)
 			error("diretiva 'cgi' espera extensao e, opcionalmente, um "
 						"executavel", line);

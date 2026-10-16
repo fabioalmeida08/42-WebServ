@@ -1,15 +1,3 @@
-/* ************************************************************************** */
-/*                                                                            */
-/*                                                        :::      ::::::::   */
-/*   router.hpp                                         :+:      :+:    :+:   */
-/*                                                    +:+ +:+         +:+     */
-/*   By: lbento <lbento@student.42.fr>              +#+  +:+       +#+        */
-/*                                                +#+#+#+#+#+   +#+           */
-/*   Created: 2026/09/14 13:08:21 by ranhaia-          #+#    #+#             */
-/*   Updated: 2026/09/26 23:06:49 by lbento           ###   ########.fr       */
-/*                                                                            */
-/* ************************************************************************** */
-
 #ifndef ROUTER_HPP
 # define ROUTER_HPP
 
@@ -27,12 +15,9 @@
 
 class Router {
 private:
-	// Constrói o caminho físico no disco
 	std::string		_build_physical_path(const std::string &uri, const Location *loc);
 
-	// Descobre se é html, css, png, etc.
 	std::string		_get_mime_type(const std::string &filepath);
-	// Gera a resposta de erro padrão (404, 403, 405)
 	Response		_generate_error_response(int status_code, const Server &server);
 	Response		_generate_autoindex(const std::string &filepath, const std::string &uri, const Server &server_config);
 
@@ -44,10 +29,6 @@ public:
 	Router();
 	~Router();
 
-	// A função que vai ser chamada no handle_client_read
-	// Se a location tiver cgi configurado e a extensão casar, chama
-	// cgi->start() e devolve uma Response com set_is_cgi(true): o WebServ
-	// ainda nao pode montar nada, o script esta rodando.
 	Response		handle_request(Request &req, const Server &server_config,
 		                       Cgi *cgi = NULL);
 };

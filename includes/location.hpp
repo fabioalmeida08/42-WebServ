@@ -1,15 +1,3 @@
-/* ************************************************************************** */
-/*                                                                            */
-/*                                                        :::      ::::::::   */
-/*   location.hpp                                       :+:      :+:    :+:   */
-/*                                                    +:+ +:+         +:+     */
-/*   By: fabio </var/spool/mail/fabio>              +#+  +:+       +#+        */
-/*                                                +#+#+#+#+#+   +#+           */
-/*   Created: 2026/08/18 00:00:00 by fabio             #+#    #+#             */
-/*   Updated: 2026/08/18 00:00:00 by fabio            ###   ########.fr       */
-/*                                                                            */
-/* ************************************************************************** */
-
 #ifndef LOCATION_HPP
 #define LOCATION_HPP
 
@@ -25,11 +13,7 @@ class Location {
     bool _autoindex;
     std::string _upload_store;
     std::string _cgi_ext;
-    // Executavel chamado para a extensao do CGI; vazio = executa o proprio
-    // arquivo (shebang). O tester oficial da 42 manda em "cgi .bla <bin>"
-    // porque o conteudo do .bla nao precisa ser um script.
     std::string _cgi_exec;
-    // 0 = nao declarado -> herda o client_max_body_size do server
     size_t _max_body_size;
     int _redirect_code;
     std::string _redirect_target;
@@ -38,14 +22,8 @@ class Location {
     Location();
     Location(const std::string &path);
 
-    // Acha a location mais especifica que casa com a URI; NULL se nenhuma.
-    // Compartilhada pelo Router e pelo Server (error_page).
     static const Location *match(const std::string &uri,
                                  const std::vector<Location> &locations);
-    // Caminho de disco de uma URI dentro desta location. O subject e
-    // explicito: "if URL /kapouet is rooted to /tmp/www, URL
-    // /kapouet/pouic/toto/pouet will search for /tmp/www/pouic/toto/pouet"
-    // — o prefixo da location sai da URL antes de entrar na root.
     static std::string resolve_path(const std::string &uri,
                                     const Location &loc);
 

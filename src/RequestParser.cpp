@@ -1,15 +1,3 @@
-/* ************************************************************************** */
-/*                                                                            */
-/*                                                        :::      ::::::::   */
-/*   RequestParser.cpp                                  :+:      :+:    :+:   */
-/*                                                    +:+ +:+         +:+     */
-/*   By: lbento <lbento@student.42.fr>              +#+  +:+       +#+        */
-/*                                                +#+#+#+#+#+   +#+           */
-/*   Created: 2026/08/18 12:28:11 by lbento            #+#    #+#             */
-/*   Updated: 2026/10/16 00:09:04 by lbento           ###   ########.fr       */
-/*                                                                            */
-/* ************************************************************************** */
-
 #include "../includes/RequestParser.hpp"
 #include "../includes/HttpUtils.hpp"
 #include <algorithm>
@@ -373,7 +361,7 @@ bool	RequestParser::start_body()
 		return true;
 	}
 	if (_request.get_method() == "POST")
-		return fail(411); // POST sem Content-Length nem chunked: nginx responde 411
+		return fail(411);
 	_state = COMPLETE;
 	return true;
 }
@@ -383,9 +371,6 @@ bool	RequestParser::read_body(State next_state)
 	if (_buffer.empty())
 		return false;
 	size_t	count = std::min(_remaining, _buffer.size());
-	// O Content-Length passou pelo teste do limite do server quando os
-	// headers foram lidos, mas o limite da location so e conhecido depois;
-	// se ele for menor, estoura aqui, a cada pedaco recebido.
 	if (_request.get_body().size() + count > _max_body_size)
 		return fail(413);
 	_request.append_body(_buffer.data(), count);

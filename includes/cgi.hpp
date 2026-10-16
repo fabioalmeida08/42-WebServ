@@ -1,15 +1,3 @@
-/* ************************************************************************** */
-/*                                                                            */
-/*                                                        :::      ::::::::   */
-/*   cgi.hpp                                            :+:      :+:    :+:   */
-/*                                                    +:+ +:+         +:+     */
-/*   By: fabio <fabio@student.42.fr>                +#+  +:+       +#+        */
-/*                                                +#+#+#+#+#+   +#+           */
-/*   Created: 2026/10/13 00:00:00 by fabio             #+#    #+#             */
-/*   Updated: 2026/10/13 00:00:00 by fabio            ###   ########.fr       */
-/*                                                                            */
-/* ************************************************************************** */
-
 #ifndef CGI_HPP
 # define CGI_HPP
 
@@ -22,28 +10,15 @@
 # include "location.hpp"
 # include "response.hpp"
 
-// Executa um script CGI: fork + execve com o ambiente HTTP montado, lendo
-// o corpo do request pelo pipe de stdin e a saida pelo de stdout.
-//
-// Os dois pipes ficam registrados no mesmo poll() do resto do servidor:
-// o subject exige que todo socket/pipe passe pelo poll, e pipe nao tem a
-// isenção que os arquivos de disco tem.
 class Cgi
 {
 	public:
-		// Quanto tempo o script pode levar antes de virar 504. e menor
-		// que o timeout do request: um CGI travado nao pode prender o
-		// cliente pra sempre (subject: "never hang indefinitely")
 		static const int TIMEOUT = 30;
 
 	private:
 		pid_t			_pid;
 		int				_in_fd;
 		int				_out_fd;
-		// Cabecalho do CGI ("Status:", "Content-Type:", ...) fica em
-		// memoria porque e pequeno e precisa ser parseado; o corpo vai
-		// direto pra um arquivo temporario, ja que uma resposta de 100MB
-		// nao pode passar pela RAM do servidor.
 		std::string		_head;
 		std::string		_tmp_path;
 		int				_tmp_fd;
@@ -76,13 +51,8 @@ class Cgi
 		int		out_fd() const;
 		pid_t	pid() const;
 		const std::string	&script_path() const;
-		// Caminho do arquivo temporario com o corpo da resposta. Devolve o
-		// caminho e se desobriga: quem chama passa a cuidar de apaga-lo.
 		std::string	take_tmp_path();
 
-		// Escreve o corpo do request no stdin do CGI. Devolve true quando
-		// todo o corpo ja foi escrito e o pipe foi fechado (o CGI precisa
-		// do EOF pra saber que acabou o body).
 		bool	feed_body(const std::string &body, size_t &sent);
 		void	close_stdin();
 		void	collect(const char *data, size_t size);

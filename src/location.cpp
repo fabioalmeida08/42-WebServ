@@ -1,15 +1,3 @@
-/* ************************************************************************** */
-/*                                                                            */
-/*                                                        :::      ::::::::   */
-/*   location.cpp                                       :+:      :+:    :+:   */
-/*                                                    +:+ +:+         +:+     */
-/*   By: lbento <lbento@student.42.fr>              +#+  +:+       +#+        */
-/*                                                +#+#+#+#+#+   +#+           */
-/*   Created: 2026/09/26 23:17:33 by lbento            #+#    #+#             */
-/*   Updated: 2026/09/26 23:17:55 by lbento           ###   ########.fr       */
-/*                                                                            */
-/* ************************************************************************** */
-
 #include "../includes/location.hpp"
 
 static bool	is_dir_path(const std::string &path)
@@ -17,8 +5,6 @@ static bool	is_dir_path(const std::string &path)
 	return !path.empty() && path[path.size() - 1] == '/';
 }
 
-// O prefixo precisa bater na fronteira de um segmento: "location /files" nao
-// pode casar com "/files2".
 static bool	path_matches(const std::string &uri, const std::string &path)
 {
 	if (uri.compare(0, path.size(), path) != 0)
