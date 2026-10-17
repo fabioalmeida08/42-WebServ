@@ -1,15 +1,3 @@
-/* ************************************************************************** */
-/*                                                                            */
-/*                                                        :::      ::::::::   */
-/*   parser.cpp                                         :+:      :+:    :+:   */
-/*                                                    +:+ +:+         +:+     */
-/*   By: lbento <lbento@student.42.fr>              +#+  +:+       +#+        */
-/*                                                +#+#+#+#+#+   +#+           */
-/*   Created: 2026/10/07 05:17:29 by lbento            #+#    #+#             */
-/*   Updated: 2026/10/07 05:18:50 by lbento           ###   ########.fr       */
-/*                                                                            */
-/* ************************************************************************** */
-
 #include <arpa/inet.h>
 #include <cctype>
 #include <cstdlib>
@@ -22,8 +10,6 @@
 #include "../includes/parser.hpp"
 
 static bool is_valid_method(const std::string &method) {
-	// HEAD e opcional na config de proposito: nao declarado, ele nao e
-	// aceito (o tester oficial do 42 espera 405 numa location "methods GET")
 	return method == "GET" || method == "POST" || method == "DELETE"
 		|| method == "HEAD";
 }
@@ -35,7 +21,7 @@ static bool is_redirect_code(int code) {
 Parser::Parser(const std::string &filename) : _filename(filename), _pos(0) {
 	std::ifstream file(filename.c_str());
 	if (!file.is_open()) {
-		throw std::runtime_error("config: nao foi possivel abrir o arquivo '" +
+		throw std::runtime_error("config: could not open file '" +
 														 filename + "'");
 	}
 
@@ -102,7 +88,7 @@ bool Parser::has_next() const { return _pos < _tokens.size(); }
 
 const Parser::Token &Parser::peek() const {
 	if (_pos >= _tokens.size())
-		error("fim inesperado do arquivo", -1);
+		error("unexpected end of file", -1);
 	return _tokens[_pos];
 }
 
@@ -110,21 +96,21 @@ void Parser::advance() { _pos++; }
 
 void Parser::expect(const std::string &what, int line) {
 	if (!has_next() || peek().value != what)
-		error("esperava '" + what + "'", line);
+		error("expected '" + what + "'", line);
 	advance();
 }
 
 int Parser::to_int(const std::string &s, int line) const {
 	for (size_t i = 0; i < s.size(); i++) {
 		if (!std::isdigit(static_cast<unsigned char>(s[i])))
-			error("'" + s + "' nao e um numero valido", line);
+			error("'" + s + "' is not a valid number", line);
 	}
 
 	std::stringstream ss(s);
 	long value;
 	ss >> value;
 	if (value > 65535 || value < 0)
-		error("numero fora do intervalo 0-65535: '" + s + "'", line);
+		error("number out of range 0-65535: '" + s + "'", line);
 	return static_cast<int>(value);
 }
 
@@ -148,21 +134,21 @@ size_t Parser::to_size(const std::string &s, int line) const {
 	}
 
 	if (number.empty())
-		error("'" + s + "' nao e um tamanho valido (ex: 100, 100k, 10M, 1G)",
+		error("'" + s + "' is not a valid size (e.g.: 100, 100k, 10M, 1G)",
 					line);
 	const size_t max = std::numeric_limits<size_t>::max();
 	size_t value = 0;
 	for (size_t i = 0; i < number.size(); i++) {
 		if (!std::isdigit(static_cast<unsigned char>(number[i])))
-			error("'" + s + "' nao e um tamanho valido (ex: 100, 100k, 10M, 1G)",
+			error("'" + s + "' is not a valid size (e.g.: 100, 100k, 10M, 1G)",
 						line);
 		size_t digit = static_cast<size_t>(number[i] - '0');
 	if (value > (max - digit) / 10)
-			error("tamanho muito grande: '" + s + "'", line);
+			error("size too large: '" + s + "'", line);
 		value = value * 10 + digit;
 	}
 	if (value > max / static_cast<size_t>(multiplier))
-		error("tamanho muito grande: '" + s + "'", line);
+		error("size too large: '" + s + "'", line);
 	return value * static_cast<size_t>(multiplier);
 }
 
@@ -176,7 +162,7 @@ std::vector<std::string> Parser::read_values() {
 	}
 
 	if (!has_next() || peek().value != ";")
-		error("esperava ';' ao final da diretiva", -1);
+		error("expected ';' at end of directive", -1);
 	advance();
 
 	return values;
@@ -186,7 +172,7 @@ void Parser::parse(std::vector<Server> &servers) {
 	while (has_next()) {
 		int line = peek().line;
 		if (peek().value != "server")
-			error("esperava 'server', encontrado '" + peek().value + "'", line);
+			error("expected 'server', found '" + peek().value + "'", line);
 
 		advance();
 		expect("{", line);
@@ -205,11 +191,11 @@ void Parser::parse_server(Server &server) {
 
 		if (name == "location") {
 			if (!has_next() || peek().value == "{" || peek().value == "}")
-				error("diretiva 'location' espera um caminho", line);
+				error("'location' directive expects a path", line);
 			std::string path = peek().value;
 			advance();
 			if (path[0] != '/')
-				error("caminho de location deve comecar com '/': '" + path + "'",
+				error("location path must start with '/': '" + path + "'",
 							line);
 			expect("{", line);
 			Location location(path);
@@ -223,7 +209,7 @@ void Parser::parse_server(Server &server) {
 	}
 
 	if (!has_next())
-		error("bloco 'server' nao foi fechado com '}'", -1);
+		error("'server' block not closed with '}'", -1);
 	advance();
 }
 
@@ -234,7 +220,7 @@ void Parser::parse_location(Location &location) {
 		advance();
 
 		if (name == "location") {
-			error("bloco 'location' aninhado nao e permitido", line);
+			error("nested 'location' block is not allowed", line);
 			continue;
 		}
 
@@ -243,7 +229,7 @@ void Parser::parse_location(Location &location) {
 	}
 
 	if (!has_next())
-		error("bloco 'location' nao foi fechado com '}'", -1);
+		error("'location' block not closed with '}'", -1);
 	advance();
 }
 
@@ -252,33 +238,33 @@ void Parser::parse_server_directive(Server &server, const std::string &name,
 																		int line) {
 	if (name == "listen") {
 		if (values.size() != 1)
-			error("diretiva 'listen' espera 1 valor", line);
+			error("'listen' directive expects 1 value", line);
 		server.set_port(to_int(values[0], line));
 	} else if (name == "server_name") {
 		if (values.size() < 1)
-			error("diretiva 'server_name' espera ao menos 1 valor", line);
+			error("'server_name' directive expects at least 1 value", line);
 		for (size_t i = 0; i < values.size(); i++)
 			server.add_name(values[i]);
 	} else if (name == "error_page") {
 		if (values.size() != 2)
-			error("diretiva 'error_page' espera 2 valores (codigo caminho)", line);
+			error("'error_page' directive expects 2 values (code path)", line);
 		int code = to_int(values[0], line);
 		if (code < 100 || code > 599)
-			error("codigo de erro invalido: '" + values[0] + "'", line);
+			error("invalid error code: '" + values[0] + "'", line);
 		server.set_error_page(code, values[1]);
 	} else if (name == "host") {
 		if (values.size() != 1)
-			error("diretiva 'host' espera 1 valor", line);
+			error("'host' directive expects 1 value", line);
 		struct in_addr addr;
 		if (inet_pton(AF_INET, values[0].c_str(), &addr) != 1)
-			error("host invalido: '" + values[0] + "' (esperado IPv4)", line);
+			error("invalid host: '" + values[0] + "' (expected IPv4)", line);
 		server.set_host(values[0]);
 	} else if (name == "client_max_body_size") {
 		if (values.size() != 1)
-			error("diretiva 'client_max_body_size' espera 1 valor", line);
+			error("'client_max_body_size' directive expects 1 value", line);
 		server.set_client_max_body(to_size(values[0], line));
 	} else {
-		error("diretiva desconhecida '" + name + "'", line);
+		error("unknown directive '" + name + "'", line);
 	}
 }
 
@@ -288,66 +274,62 @@ void Parser::parse_location_directive(Location &location,
 																			int line) {
 	if (name == "root") {
 		if (values.size() != 1)
-			error("diretiva 'root' espera 1 valor", line);
+			error("'root' directive expects 1 value", line);
 		location.set_root(values[0]);
 	} else if (name == "methods") {
 		if (values.size() < 1)
-			error("diretiva 'methods' espera ao menos 1 metodo", line);
+			error("'methods' directive expects at least 1 method", line);
 		for (size_t i = 0; i < values.size(); i++) {
 			if (!is_valid_method(values[i]))
-				error("metodo invalido: '" + values[i] + "' (esperado GET, HEAD, "
-							"POST ou DELETE)",
+				error("invalid method: '" + values[i] + "' (expected GET, HEAD, "
+							"POST or DELETE)",
 							line);
 		}
 		location.set_methods(values);
 	} else if (name == "index") {
 		if (values.size() != 1)
-			error("diretiva 'index' espera 1 valor", line);
+			error("'index' directive expects 1 value", line);
 		location.set_index(values[0]);
 	} else if (name == "autoindex") {
 		if (values.size() != 1)
-			error("diretiva 'autoindex' espera 1 valor (on/off)", line);
+			error("'autoindex' directive expects 1 value (on/off)", line);
 		if (values[0] == "on")
 			location.set_autoindex(true);
 		else if (values[0] == "off")
 			location.set_autoindex(false);
 		else
-			error("valor invalido para 'autoindex': '" + values[0] +
-								"' (esperado on/off)",
+			error("invalid value for 'autoindex': '" + values[0] +
+								"' (expected on/off)",
 						line);
 	} else if (name == "upload_store") {
 		if (values.size() != 1)
-			error("diretiva 'upload_store' espera 1 valor", line);
+			error("'upload_store' directive expects 1 value", line);
 		location.set_upload_store(values[0]);
 	} else if (name == "client_max_body_size") {
-		// Limite por location: o teste oficial do 42 pede um /post_body com
-		// maxBody 100 enquanto as outras locations aceitam corpo enorme.
 		if (values.size() != 1)
-			error("diretiva 'client_max_body_size' espera 1 valor", line);
+			error("'client_max_body_size' directive expects 1 value", line);
 		location.set_max_body_size(to_size(values[0], line));
 	} else if (name == "cgi") {
-		// "cgi .py;"         -> executa o proprio arquivo (shebang)
-		// "cgi .bla cgi_test" -> chama o executavel passando o arquivo
 		if (values.size() < 1 || values.size() > 2)
-			error("diretiva 'cgi' espera extensao e, opcionalmente, um "
-						"executavel", line);
+			error("'cgi' directive expects an extension and, optionally, an "
+						"executable", line);
 		if (values[0].empty() || values[0][0] != '.')
-			error("extensao de cgi deve comecar com '.': '" + values[0] + "'",
+			error("cgi extension must start with '.': '" + values[0] + "'",
 						line);
 		location.set_cgi_ext(values[0]);
 		if (values.size() == 2)
 			location.set_cgi_exec(values[1]);
 	} else if (name == "redirect") {
 		if (values.size() != 2)
-			error("diretiva 'redirect' espera 2 valores (codigo destino)", line);
+			error("'redirect' directive expects 2 values (code destination)", line);
 		int code = to_int(values[0], line);
 		if (!is_redirect_code(code))
-			error("codigo de redirect invalido (esperado 3xx): '" + values[0] +
+			error("invalid redirect code (expected 3xx): '" + values[0] +
 								"'",
 						line);
 		location.set_redirect(code, values[1]);
 	} else {
-		error("diretiva desconhecida '" + name + "'", line);
+		error("unknown directive '" + name + "'", line);
 	}
 }
 

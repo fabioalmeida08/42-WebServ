@@ -1,17 +1,5 @@
-/* ************************************************************************** */
-/*                                                                            */
-/*                                                        :::      ::::::::   */
-/*   request.cpp                                        :+:      :+:    :+:   */
-/*                                                    +:+ +:+         +:+     */
-/*   By: lbento <lbento@student.42.fr>              +#+  +:+       +#+        */
-/*                                                +#+#+#+#+#+   +#+           */
-/*   Created: 2026/08/18 12:27:41 by lbento            #+#    #+#             */
-/*   Updated: 2026/09/26 23:30:34 by lbento           ###   ########.fr       */
-/*                                                                            */
-/* ************************************************************************** */
-
 #include "../includes/request.hpp"
-#include "../includes/http_utils.hpp"
+#include "../includes/HttpUtils.hpp"
 
 Request::Request()
 {

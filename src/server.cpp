@@ -1,15 +1,3 @@
-/* ************************************************************************** */
-/*                                                                            */
-/*                                                        :::      ::::::::   */
-/*   server.cpp                                         :+:      :+:    :+:   */
-/*                                                    +:+ +:+         +:+     */
-/*   By: lbento <lbento@student.42.fr>              +#+  +:+       +#+        */
-/*                                                +#+#+#+#+#+   +#+           */
-/*   Created: 2026/10/07 05:17:48 by lbento            #+#    #+#             */
-/*   Updated: 2026/10/07 05:17:49 by lbento           ###   ########.fr       */
-/*                                                                            */
-/* ************************************************************************** */
-
 #include "../includes/server.hpp"
 
 Server::Server()
@@ -34,7 +22,7 @@ std::string Server::resolve_error_page(int code) const {
 
   const std::string &uri = it->second;
   if (uri.empty() || uri[0] != '/')
-    return uri; // ja e um caminho de disco, nao uma URI
+    return uri;
 
   const Location *loc = Location::match(uri, _locations);
   if (loc == NULL)

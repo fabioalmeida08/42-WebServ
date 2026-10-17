@@ -1,4 +1,4 @@
-*This project has been created as part of the 42 curriculum by fabioalmeida08, lucabarbosa, RenatoWw.*
+*This project has been created as part of the 42 curriculum by fabialme, lbento, ranhaia-.*
 
 # 42-WebServ
 

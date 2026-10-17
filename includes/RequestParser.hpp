@@ -1,17 +1,5 @@
-/* ************************************************************************** */
-/*                                                                            */
-/*                                                        :::      ::::::::   */
-/*   request_parser.hpp                                 :+:      :+:    :+:   */
-/*                                                    +:+ +:+         +:+     */
-/*   By: lbento <lbento@student.42.fr>              +#+  +:+       +#+        */
-/*                                                +#+#+#+#+#+   +#+           */
-/*   Created: 2026/08/18 12:22:27 by lbento            #+#    #+#             */
-/*   Updated: 2026/09/26 23:03:56 by lbento           ###   ########.fr       */
-/*                                                                            */
-/* ************************************************************************** */
-
-#ifndef REQUEST_PARSER_HPP
-# define REQUEST_PARSER_HPP
+#ifndef REQUESTPARSER_HPP
+# define REQUESTPARSER_HPP
 
 # include <string>
 # include "request.hpp"

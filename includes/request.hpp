@@ -1,15 +1,3 @@
-/* ************************************************************************** */
-/*                                                                            */
-/*                                                        :::      ::::::::   */
-/*   request.hpp                                        :+:      :+:    :+:   */
-/*                                                    +:+ +:+         +:+     */
-/*   By: lbento <lbento@student.42.fr>              +#+  +:+       +#+        */
-/*                                                +#+#+#+#+#+   +#+           */
-/*   Created: 2026/08/18 12:21:59 by lbento            #+#    #+#             */
-/*   Updated: 2026/09/26 23:03:16 by lbento           ###   ########.fr       */
-/*                                                                            */
-/* ************************************************************************** */
-
 #ifndef REQUEST_HPP
 # define REQUEST_HPP
 
@@ -31,7 +19,7 @@ class Request
 		Request(const Request &other);
 		Request &operator=(const Request &other);
 		~Request();
-	
+
 		const std::string	&get_method() const;
 		const std::string	&get_uri() const;
 		const std::string	&get_path() const;

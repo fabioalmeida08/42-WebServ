@@ -1,16 +1,4 @@
-/* ************************************************************************** */
-/*                                                                            */
-/*                                                        :::      ::::::::   */
-/*   http_utils.cpp                                     :+:      :+:    :+:   */
-/*                                                    +:+ +:+         +:+     */
-/*   By: lbento <lbento@student.42.fr>              +#+  +:+       +#+        */
-/*                                                +#+#+#+#+#+   +#+           */
-/*   Created: 2026/09/23 21:40:00 by lbento            #+#    #+#             */
-/*   Updated: 2026/09/26 22:30:09 by lbento           ###   ########.fr       */
-/*                                                                            */
-/* ************************************************************************** */
-
-#include "../includes/http_utils.hpp"
+#include "../includes/HttpUtils.hpp"
 #include <cctype>
 #include <cstdio>
 #include <ctime>

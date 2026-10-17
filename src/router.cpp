@@ -1,17 +1,5 @@
-/* ************************************************************************** */
-/*                                                                            */
-/*                                                        :::      ::::::::   */
-/*   router.cpp                                         :+:      :+:    :+:   */
-/*                                                    +:+ +:+         +:+     */
-/*   By: lbento <lbento@student.42.fr>              +#+  +:+       +#+        */
-/*                                                +#+#+#+#+#+   +#+           */
-/*   Created: 2026/09/14 13:58:53 by ranhaia-          #+#    #+#             */
-/*   Updated: 2026/09/26 23:38:21 by lbento           ###   ########.fr       */
-/*                                                                            */
-/* ************************************************************************** */
-
 #include "../includes/router.hpp"
-#include "../includes/http_utils.hpp"
+#include "../includes/HttpUtils.hpp"
 #include "../includes/mime.hpp"
 #include <algorithm>
 #include <iostream>
@@ -21,10 +9,121 @@ static bool	is_dir_path(const std::string &path)
 	return !path.empty() && path[path.size() - 1] == '/';
 }
 
+static std::string	get_multipart_boundary(const std::string &content_type)
+{
+	std::string	lower = HttpUtils::to_lower(content_type);
+	size_t		pos = lower.find("multipart/form-data");
+
+	if (pos == std::string::npos)
+		return "";
+	pos = lower.find("boundary=", pos);
+	if (pos == std::string::npos)
+		return "";
+	std::string	boundary = content_type.substr(pos + 9);
+	size_t		semi = boundary.find(';');
+	if (semi != std::string::npos)
+		boundary = boundary.substr(0, semi);
+	boundary = HttpUtils::trim(boundary);
+	if (boundary.size() >= 2 && boundary[0] == '"'
+		&& boundary[boundary.size() - 1] == '"')
+		boundary = boundary.substr(1, boundary.size() - 2);
+	return boundary;
+}
+
+static std::string	extract_disposition_filename(const std::string &headers)
+{
+	std::string	lower = HttpUtils::to_lower(headers);
+	size_t		pos = lower.find("content-disposition");
+
+	if (pos == std::string::npos)
+		return "";
+	pos = lower.find("filename=", pos);
+	if (pos == std::string::npos)
+		return "";
+	size_t		i = pos + 9;
+	std::string	value;
+
+	while (i < headers.size() && (headers[i] == ' ' || headers[i] == '\t'))
+		i++;
+	if (i < headers.size() && headers[i] == '"')
+	{
+		i++;
+		while (i < headers.size() && headers[i] != '"')
+		{
+			if (headers[i] == '\\' && i + 1 < headers.size())
+				i++;
+			value += headers[i++];
+		}
+	}
+	else
+	{
+		while (i < headers.size() && headers[i] != ';'
+			&& headers[i] != '\r' && headers[i] != '\n')
+			value += headers[i++];
+	}
+	return HttpUtils::trim(value);
+}
+
+static std::string	safe_upload_name(const std::string &name)
+{
+	size_t		pos = name.find_last_of("/\\");
+	std::string	base = (pos == std::string::npos) ? name : name.substr(pos + 1);
+
+	if (base.empty() || base == "." || base == "..")
+		return "";
+	if (base.find('\0') != std::string::npos)
+		return "";
+	return base;
+}
+
+static bool	store_multipart_files(const std::string &body,
+			const std::string &boundary, const std::string &upload_dir)
+{
+	std::string	delim = "--" + boundary;
+	size_t		pos = 0;
+	bool		stored = false;
+
+	while (true)
+	{
+		size_t	start = body.find(delim, pos);
+		if (start == std::string::npos)
+			break;
+		size_t	after = start + delim.size();
+		if (body.compare(after, 2, "--") == 0)
+			break;
+		if (body.compare(after, 2, "\r\n") == 0)
+			after += 2;
+		size_t	header_end = body.find("\r\n\r\n", after);
+		if (header_end == std::string::npos)
+			break;
+		std::string	headers = body.substr(after, header_end - after);
+		size_t		content_start = header_end + 4;
+		size_t		next = body.find(delim, content_start);
+		if (next == std::string::npos)
+			break;
+		size_t		content_end = next;
+		if (content_end >= 2 && body.compare(content_end - 2, 2, "\r\n") == 0)
+			content_end -= 2;
+		pos = next;
+
+		std::string	filename =
+			safe_upload_name(extract_disposition_filename(headers));
+		if (filename.empty())
+			continue;
+		std::string	filepath = upload_dir + "/" + filename;
+		std::ofstream	outfile(filepath.c_str(),
+			std::ios::out | std::ios::binary);
+		if (!outfile.is_open())
+			return false;
+		outfile.write(body.data() + content_start, content_end - content_start);
+		outfile.close();
+		stored = true;
+	}
+	return stored;
+}
+
 std::string     Router::_build_physical_path(const std::string &uri, const Location *loc)
 {
-	// O prefixo da location nao entra na URL que vira caminho de disco
-	// (exemplo do subject: /kapouet -> /tmp/www)
 	return Location::resolve_path(uri, *loc);
 }
 
@@ -102,18 +201,14 @@ Router::~Router()
 Response		Router::_handle_get_request(Request &req, const Server &server_config, const Location* best_match)
 {
 	Response	response;
-	// Retorna onde o arquivo está
 	std::string filepath = _build_physical_path(req.get_path(), best_match);
 	struct	stat	path_info;
 	if (stat(filepath.c_str(), &path_info) < 0)
 		return _generate_error_response(404, server_config);
 	std::string	dir_path = filepath;
 
-	// Verifica se é diretório
 	if (S_ISDIR(path_info.st_mode))
 	{
-		// Sem a barra final o browser resolve os links do autoindex relativos
-		// ao pai; manda um 301 como o nginx faz.
 		if (!is_dir_path(req.get_path()))
 		{
 			Response	redirect;
@@ -136,16 +231,13 @@ Response		Router::_handle_get_request(Request &req, const Server &server_config,
 			filepath += "/";
 		filepath += index_file;
 	}
-	// Checa as permissões de leitura e se o arquivo existe
 	if (access(filepath.c_str(), F_OK) != 0)
 	{
-		// criar autoindex
 		if (best_match->get_autoindex())
 			return _generate_autoindex(dir_path, req.get_path(), server_config);
 		else
 			return _generate_error_response(404, server_config);
 	}
-	// Sem permissão para ler
 	if (access(filepath.c_str(), R_OK) != 0)
 		return _generate_error_response(403, server_config);
 
@@ -153,8 +245,6 @@ Response		Router::_handle_get_request(Request &req, const Server &server_config,
 	if (stat(filepath.c_str(), &file_info) < 0 || !S_ISREG(file_info.st_mode))
 		return _generate_error_response(403, server_config);
 
-	// Não lemos o arquivo aqui: o WebServ manda em blocos pra não
-	// estourar a memoria com arquivos grandes
 	response.set_status(200);
 	response.set_header("Content-Type", _get_mime_type(filepath));
 	response.set_file(filepath, static_cast<size_t>(file_info.st_size));
@@ -165,9 +255,20 @@ Response		Router::_handle_post_request(Request &req, const Server &server_config
 {
 	Response	response;
 	std::string upload_dir = best_match->get_upload_store();
-		
+
 	if (upload_dir.empty())
 		return _generate_error_response(403, server_config);
+
+	std::string	boundary = get_multipart_boundary(req.get_header("content-type"));
+	if (!boundary.empty())
+	{
+		if (!store_multipart_files(req.get_body(), boundary, upload_dir))
+			return _generate_error_response(400, server_config);
+		response.set_status(201);
+		response.set_header("Content-Type", "text/plain");
+		response.set_body("Upload realizado com sucesso!\n");
+		return response;
+	}
 
 	size_t pos = req.get_path().find_last_of('/');
 	std::string filename = (pos == std::string::npos) ? req.get_path()
@@ -179,13 +280,13 @@ Response		Router::_handle_post_request(Request &req, const Server &server_config
 
 	std::ofstream outfile(filepath.c_str(), std::ios::out | std::ios::binary);
 	if (!outfile.is_open())
-		return _generate_error_response(500, server_config); // Erro interno: pasta /tmp/uploads não existe
+		return _generate_error_response(500, server_config);
 
 	std::string req_body = req.get_body();
 	outfile.write(req_body.data(), req_body.size());
 	outfile.close();
 
-	response.set_status(201); // 201 Created
+	response.set_status(201);
 	response.set_header("Content-Type", "text/plain");
 	response.set_body("Upload realizado com sucesso!\n");
 	return response;
@@ -197,7 +298,6 @@ Response		Router::_handle_del_request(Request &req, const Server &server_config,
 	std::string filepath;
 	std::string upload_dir = best_match->get_upload_store();
 
-	// Se essa rota lida com uploads, o arquivo está lá
 	if (!upload_dir.empty())
 	{
 		size_t pos = req.get_path().find_last_of('/');
@@ -211,34 +311,27 @@ Response		Router::_handle_del_request(Request &req, const Server &server_config,
 	{
 		filepath = _build_physical_path(req.get_path(), best_match);
 	}
-	// Verifica se o arquivo existe
 	if (access(filepath.c_str(), F_OK) != 0)
 		return _generate_error_response(404, server_config);
-		
-	// A função std::remove apaga o arquivo
+
 	if (std::remove(filepath.c_str()) == 0)
 	{
-		response.set_status(204); // 204 No Content (Apagou com sucesso, nada a retornar)
+		response.set_status(204);
 		response.set_header("Content-Length", "0");
 		return response;
 	} else
-		return _generate_error_response(403, server_config); // Sem permissão para apagar
+		return _generate_error_response(403, server_config);
 }
 
 Response Router::handle_request(Request &req, const Server &server_config, Cgi *cgi) {
 	Response response;
 	std::string uri = req.get_path();
-	
-	// Achar o Location
-	const Location* best_match = Location::match(uri, server_config.get_locations());
-	
-	if (best_match == NULL)
-		return _generate_error_response(404, server_config); // Not Found
 
-	// Validação de Método — antes do redirect e do CGI: quem manda na
-	// location e a lista "methods". E HEAD NAO herda de GET: o tester
-	// oficial do 42 manda HEAD numa location marcada so com GET e espera
-	// 405, entao quem quiser HEAD precisa declara-lo.
+	const Location* best_match = Location::match(uri, server_config.get_locations());
+
+	if (best_match == NULL)
+		return _generate_error_response(404, server_config);
+
 	std::string	req_method = req.get_method();
 	const std::vector<std::string> &allowed = best_match->get_methods();
 	bool is_allowed = false;
@@ -263,17 +356,13 @@ Response Router::handle_request(Request &req, const Server &server_config, Cgi *
 			allow += allowed[i];
 		}
 		refused.set_header("Allow", allow);
-		return refused; // Method Not Allowed
+		return refused;
 	}
 
-	// Limite de corpo por location. O parser so tinha o valor do server na
-	// hora de ler os headers (a location so fica conhecida depois da linha
-	// de requisicao), entao e aqui que o estouro e barrado de vez.
 	if (best_match->get_max_body_size() > 0
 		&& req.get_body().size() > best_match->get_max_body_size())
 		return _generate_error_response(413, server_config);
 
-	// Redirecionamento configurado na location (nginx: return 301 ...)
 	if (best_match->get_redirect_code() != 0)
 	{
 		response.set_status(best_match->get_redirect_code());
@@ -281,17 +370,10 @@ Response Router::handle_request(Request &req, const Server &server_config, Cgi *
 		return response;
 	}
 
-	// CGI: um POST pra CGI não é upload — o corpo vai pro stdin do script,
-	// não pro disco
 	if (Cgi::is_cgi_path(uri, *best_match))
 	{
 		if (cgi == NULL)
 			return _generate_error_response(500, server_config);
-		// Aqui nao ha o que servir de arquivo: se o script nao existe nao
-		// da pra invocar o interpretador, entao a resposta e 502 (mesmo
-		// racional de "nao deu pra falar com o de tras" do nginx). O
-		// tester oficial do 42 tem justamente um POST pra um .bla que nao
-		// existe (/directory/youpla.bla).
 		std::string	err;
 		if (!cgi->start(req, server_config, *best_match,
 		                Cgi::script_path_of(uri, *best_match), "", err))
@@ -310,6 +392,6 @@ Response Router::handle_request(Request &req, const Server &server_config, Cgi *
 	else if (req_method == "DELETE")
 		response = _handle_del_request(req, server_config, best_match);
 	else
-		return _generate_error_response(501, server_config); // Not implemented
+		return _generate_error_response(501, server_config);
 	return response;
 }

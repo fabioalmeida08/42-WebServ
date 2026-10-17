@@ -276,6 +276,92 @@ def run_upload(host, port):
     check_true("arquivo saiu do disco", not os.path.exists(path))
 
 
+def multipart_body(files, boundary="----smokeBoundary42"):
+    """Monta um corpo multipart/form-data com varias partes de arquivo.
+    files: lista de (field_name, filename, bytes)."""
+    out = b""
+    for field, filename, data in files:
+        out += ("--%s\r\n" % boundary).encode()
+        out += ('Content-Disposition: form-data; name="%s"; filename="%s"\r\n'
+                % (field, filename)).encode()
+        out += b"Content-Type: application/octet-stream\r\n\r\n"
+        out += data + b"\r\n"
+    out += ("--%s--\r\n" % boundary).encode()
+    return out
+
+
+def run_multipart_upload(host, port):
+    print("--- upload multipart (nome vem do filename) ---")
+    names = ["multipart-a.txt", "multipart-b.txt"]
+    paths = [os.path.join(REPO, "www", "upload", n) for n in names]
+    for p in paths:
+        drop_file(p)
+
+    # A URL nao tem nome de arquivo: sem ler o multipart o servidor gravaria
+    # tudo no mesmo "upload" e um arquivo sobrescreveria o outro.
+    body = multipart_body([
+        ("file", names[0], b"conteudo do arquivo A"),
+        ("file", names[1], b"conteudo do arquivo B, diferente"),
+    ])
+    st, _, _ = req("POST", "/upload", body=body,
+                   headers={"Content-Type":
+                            "multipart/form-data; boundary=----smokeBoundary42"},
+                   host=host, port=port)
+    check("POST multipart (201)", st, 201)
+    check_true("arquivo A criado com o nome correto",
+               os.path.isfile(paths[0])
+               and open(paths[0], "rb").read() == b"conteudo do arquivo A",
+               names[0] if os.path.isfile(paths[0]) else "nao existe")
+    check_true("arquivo B criado com o nome correto (nao sobrescreve A)",
+               os.path.isfile(paths[1])
+               and open(paths[1], "rb").read() == b"conteudo do arquivo B, diferente",
+               names[1] if os.path.isfile(paths[1]) else "nao existe")
+
+    # GET dos arquivos enviados: confirma que foram servidos pelos nomes certos
+    st, _, body = req("GET", "/upload/" + names[0], host=host, port=port)
+    check("GET arquivo A", st, 200)
+    check_true("conteudo do arquivo A bate",
+               body == b"conteudo do arquivo A", body[:40])
+    st, _, body = req("GET", "/upload/" + names[1], host=host, port=port)
+    check("GET arquivo B", st, 200)
+    check_true("conteudo do arquivo B bate",
+               body == b"conteudo do arquivo B, diferente", body[:40])
+
+    # Terceiro envio com nome novo tem que criar arquivo novo, sem apagar os
+    # anteriores (o bug antigo deixava um unico arquivo sobrescrito).
+    name_c = "multipart-c.txt"
+    path_c = os.path.join(REPO, "www", "upload", name_c)
+    drop_file(path_c)
+    body = multipart_body([("file", name_c, b"terceiro arquivo")])
+    st, _, _ = req("POST", "/upload/", body=body,
+                   headers={"Content-Type":
+                            "multipart/form-data; boundary=----smokeBoundary42"},
+                   host=host, port=port)
+    check("POST multipart em /upload/ (201)", st, 201)
+    check_true("arquivo C criado", os.path.isfile(path_c)
+               and open(path_c, "rb").read() == b"terceiro arquivo")
+    check_true("A e B continuam no disco",
+               os.path.isfile(paths[0]) and os.path.isfile(paths[1]))
+
+    # filename com caminho nao pode escapar da pasta de upload
+    evil = os.path.join(REPO, "www", "upload", "evil.txt")
+    escape = os.path.join(REPO, "www", "evil.txt")
+    drop_file(evil)
+    drop_file(escape)
+    body = multipart_body([("file", "../../../evil.txt", b"traversal")])
+    st, _, _ = req("POST", "/upload", body=body,
+                   headers={"Content-Type":
+                            "multipart/form-data; boundary=----smokeBoundary42"},
+                   host=host, port=port)
+    check("POST multipart com filename de traversal (201)", st, 201)
+    check_true("arquivo ficou dentro da pasta de upload",
+               os.path.isfile(evil) and not os.path.exists(escape))
+    drop_file(evil)
+
+    for p in paths + [path_c]:
+        drop_file(p)
+
+
 def run_chunked(host, port):
     print("--- request chunkado ---")
     raw = Raw(host, port)
@@ -476,6 +562,7 @@ def main():
             run_errors(args.host, args.port, fifo)
             run_traversal(args.host, args.port)
             run_upload(args.host, args.port)
+            run_multipart_upload(args.host, args.port)
             run_chunked(args.host, args.port)
             run_autoindex(args.host, args.port)
             run_big_file(args.host, args.port)
